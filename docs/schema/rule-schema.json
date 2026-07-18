@@ -5,9 +5,85 @@
   "description": "A Rulewright rule document: either a single rule or a rule set. Logic lives in 'condition' and 'actions'; the 'layout' key is presentation metadata for canvas tools and is ignored entirely by the engine.",
   "oneOf": [
     { "$ref": "#/$defs/rule" },
-    { "$ref": "#/$defs/ruleSet" }
+    { "$ref": "#/$defs/ruleSet" },
+    { "$ref": "#/$defs/decisionTableDocument" }
   ],
   "$defs": {
+    "decisionTableDocument": {
+      "type": "object",
+      "properties": { "decisionTable": { "$ref": "#/$defs/decisionTable" } },
+      "required": ["decisionTable"]
+    },
+    "decisionTable": {
+      "type": "object",
+      "description": "A tabular authoring form that expands into ordinary rules — one rule per row. Each input column contributes a condition (a null cell is a wildcard); a row with all-wildcard inputs is a catch-all. Each output column contributes an action.",
+      "properties": {
+        "id": { "type": "string", "description": "Base for generated row rule ids ('<id>-<rowIndex>'); defaults to 'row'." },
+        "name": { "type": "string", "description": "Optional display name for the expanded rule set." },
+        "hitPolicy": {
+          "enum": ["collect", "first"],
+          "default": "collect",
+          "description": "'collect' (default): every matching row applies its actions in row order. 'first': only the first matching row (in row order) applies."
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/decisionInput" },
+          "description": "Input columns, left to right; each maps a 'when' cell to a condition."
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/decisionOutput" },
+          "description": "Output columns, left to right; each maps a 'then' cell to an action."
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/decisionRow" }
+        }
+      },
+      "required": ["inputs", "outputs", "rows"]
+    },
+    "decisionInput": {
+      "type": "object",
+      "properties": {
+        "field": { "type": "string", "minLength": 1, "description": "Dotted fact path this column compares against." },
+        "operator": {
+          "enum": ["Equals", "NotEquals", "GreaterThan", "GreaterThanOrEqual", "LessThan", "LessThanOrEqual", "Contains", "StartsWith", "EndsWith", "MatchesRegex", "In", "NotIn"],
+          "default": "Equals",
+          "description": "Comparison applied to non-wildcard cells in this column."
+        }
+      },
+      "required": ["field"]
+    },
+    "decisionOutput": {
+      "type": "object",
+      "properties": {
+        "target": { "type": "string", "minLength": 1, "description": "Output key this column writes." },
+        "type": {
+          "enum": ["setOutput", "addToOutput", "appendToOutput"],
+          "default": "setOutput",
+          "description": "How a non-null 'then' cell combines into the outputs."
+        }
+      },
+      "required": ["target"]
+    },
+    "decisionRow": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "type": "array",
+          "description": "One cell per input column. A null cell is a wildcard (no condition). For In/NotIn columns a cell is an array; otherwise a scalar."
+        },
+        "then": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expression" },
+          "description": "One cell per output column. A null cell skips that output for this row; any other value is an expression."
+        }
+      },
+      "required": ["when", "then"]
+    },
     "ruleSet": {
       "type": "object",
       "properties": {

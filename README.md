@@ -196,6 +196,41 @@ any non-numeric value) contributes nothing rather than wiping the running result
 rule can't destroy a total. Each fired rule's own `Outputs` snapshot reflects the result *at
 that rule's firing* (`appendToOutput` copies the list, so earlier snapshots stay frozen).
 
+### Decision tables
+
+For logic that reads naturally as a grid, a **decision table** is a compact authoring form.
+Each input column maps a cell to a condition; each output column maps a cell to an action:
+
+```json
+{
+  "decisionTable": {
+    "hitPolicy": "first",
+    "inputs": [
+      { "field": "Customer.Tier", "operator": "Equals" },
+      { "field": "Order.Total",   "operator": "GreaterThanOrEqual" }
+    ],
+    "outputs": [ { "target": "Discount" }, { "target": "Label" } ],
+    "rows": [
+      { "when": ["VIP", 100],  "then": [20, "vip-big-order"] },
+      { "when": ["VIP", null], "then": [10, "vip"] },
+      { "when": [null, null],  "then": [0,  "standard"] }
+    ]
+  }
+}
+```
+
+A table **expands into ordinary rules at load time** — one rule per row — so it runs through
+the exact same compiled/interpreted path with no special casing, and the same schema, tracing,
+and hashing apply. A `null` input cell is a **wildcard**; an all-wildcard row is a **catch-all**.
+Input columns default to `Equals` and take any comparison operator (`In` cells are arrays);
+output columns default to `setOutput` and may use `addToOutput`/`appendToOutput`. A `null`
+output cell skips that output for the row. Two hit policies:
+
+- **`collect`** (default) — every matching row applies its actions in row order (pairs with
+  `addToOutput` for scoring tables).
+- **`first`** — only the first matching row applies. Encoded by ANDing each row with the
+  negation of every earlier row's condition, so exactly one row fires under normal evaluation.
+
 ## Performance
 
 The benchmark suite (`tests/Rulewright.Benchmarks`, BenchmarkDotNet) measures
@@ -250,8 +285,8 @@ Called out explicitly so expectations are clear:
 - **v1** — core engine: compiled evaluation, interpreter fallback, tracing,
   schema + validator, benchmarks, net48 proof.
 - **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
-  `concat`, `coalesce` over fact fields) and accumulating action types
-  (`addToOutput`/`appendToOutput`) have shipped; next up decision-table authoring. Also on
+  `concat`, `coalesce` over fact fields), accumulating action types
+  (`addToOutput`/`appendToOutput`), and decision-table authoring have shipped. Also on
   the track: Newtonsoft adapter, function catalog/discovery API, and the
   NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.

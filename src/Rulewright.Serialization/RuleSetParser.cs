@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Rulewright.Core;
 
 namespace Rulewright.Serialization;
@@ -28,6 +29,11 @@ public static class RuleSetParser
         if (!validation.IsValid)
         {
             throw new RuleValidationException(validation.Errors);
+        }
+
+        if (document.TryGetProperty("decisionTable", out RuleJsonValue decisionTable))
+        {
+            return ExpandDecisionTable(decisionTable);
         }
 
         if (document.TryGetProperty("rules", out RuleJsonValue rules))
@@ -88,6 +94,137 @@ public static class RuleSetParser
             priority,
             enabled);
     }
+
+    /// <summary>
+    /// Expands a decision table into ordinary rules — one rule per row — so the engine
+    /// evaluates it through the normal compiled/interpreted path with no special casing.
+    /// Each input column contributes a condition leaf (a null cell is a wildcard); a row with
+    /// all-wildcard inputs is a catch-all. The <c>first</c> hit policy is baked into the
+    /// conditions by ANDing each row with the negation of every earlier row's own condition,
+    /// so exactly the first matching row fires under normal evaluation.
+    /// </summary>
+    private static RuleSet ExpandDecisionTable(RuleJsonValue table)
+    {
+        string? name = table.TryGetProperty("name", out RuleJsonValue nameValue) && nameValue.Kind == RuleJsonValueKind.String
+            ? nameValue.GetString()
+            : null;
+        string idBase = table.TryGetProperty("id", out RuleJsonValue idValue) && idValue.Kind == RuleJsonValueKind.String
+            ? idValue.GetString()
+            : "row";
+        bool firstPolicy = table.TryGetProperty("hitPolicy", out RuleJsonValue hitPolicy)
+            && hitPolicy.Kind == RuleJsonValueKind.String
+            && hitPolicy.GetString() == "first";
+
+        table.TryGetProperty("inputs", out RuleJsonValue inputs);
+        table.TryGetProperty("outputs", out RuleJsonValue outputs);
+        table.TryGetProperty("rows", out RuleJsonValue rows);
+
+        int inputCount = inputs.Items.Count;
+        var fields = new string[inputCount];
+        var operators = new ConditionOperator[inputCount];
+        for (int c = 0; c < inputCount; c++)
+        {
+            inputs.Items[c].TryGetProperty("field", out RuleJsonValue field);
+            fields[c] = field.GetString();
+            operators[c] = ConditionOperator.Equal;
+            if (inputs.Items[c].TryGetProperty("operator", out RuleJsonValue op))
+            {
+                OperatorMap.TryParse(op.GetString(), out operators[c]);
+            }
+        }
+
+        int outputCount = outputs.Items.Count;
+        var targets = new string[outputCount];
+        var types = new string[outputCount];
+        for (int c = 0; c < outputCount; c++)
+        {
+            outputs.Items[c].TryGetProperty("target", out RuleJsonValue target);
+            targets[c] = target.GetString();
+            types[c] = outputs.Items[c].TryGetProperty("type", out RuleJsonValue type) && type.Kind == RuleJsonValueKind.String
+                ? type.GetString()
+                : RuleAction.SetOutputType;
+        }
+
+        int rowCount = rows.Items.Count;
+        var ownConditions = new ConditionNode[rowCount];
+        var expanded = new List<Rule>(rowCount);
+        for (int r = 0; r < rowCount; r++)
+        {
+            rows.Items[r].TryGetProperty("when", out RuleJsonValue when);
+            var leaves = new List<ConditionNode>();
+            for (int c = 0; c < inputCount; c++)
+            {
+                RuleJsonValue cell = when.Items[c];
+                if (cell.Kind == RuleJsonValueKind.Null)
+                {
+                    continue; // wildcard: no condition for this column
+                }
+
+                object? comparand = operators[c] is ConditionOperator.In or ConditionOperator.NotIn
+                    ? ParseArrayCell(cell)
+                    : cell.ToClrValue();
+                leaves.Add(new ConditionLeaf(fields[c], operators[c], comparand));
+            }
+
+            ConditionNode ownCondition = leaves.Count switch
+            {
+                0 => AlwaysTrue(fields[0]),
+                1 => leaves[0],
+                _ => new ConditionGroup(LogicalOperator.And, leaves),
+            };
+            ownConditions[r] = ownCondition;
+
+            ConditionNode condition = ownCondition;
+            if (firstPolicy && r > 0)
+            {
+                var parts = new List<ConditionNode>(r + 1) { ownCondition };
+                for (int p = 0; p < r; p++)
+                {
+                    parts.Add(new ConditionGroup(LogicalOperator.Not, new[] { ownConditions[p] }));
+                }
+
+                condition = new ConditionGroup(LogicalOperator.And, parts);
+            }
+
+            rows.Items[r].TryGetProperty("then", out RuleJsonValue then);
+            var actions = new List<RuleAction>();
+            for (int c = 0; c < outputCount; c++)
+            {
+                RuleJsonValue cell = then.Items[c];
+                if (cell.Kind == RuleJsonValueKind.Null)
+                {
+                    continue; // this row does not write this output
+                }
+
+                actions.Add(new RuleAction(types[c], targets[c], ParseValueExpression(cell)));
+            }
+
+            string id = idBase + "-" + r.ToString(CultureInfo.InvariantCulture);
+            expanded.Add(new Rule(id, condition, actions, description: null, priority: rowCount - r));
+        }
+
+        return new RuleSet(expanded, name);
+    }
+
+    private static object?[] ParseArrayCell(RuleJsonValue cell)
+    {
+        var items = new object?[cell.Items.Count];
+        for (int i = 0; i < cell.Items.Count; i++)
+        {
+            items[i] = cell.Items[i].ToClrValue();
+        }
+
+        return items;
+    }
+
+    private static ConditionNode AlwaysTrue(string field)
+        => new ConditionGroup(
+            LogicalOperator.Or,
+            new ConditionNode[]
+            {
+                new ConditionLeaf(field, ConditionOperator.IsNotNull, null),
+                new ConditionLeaf(field, ConditionOperator.IsNull, null),
+            });
 
     private static ValueExpression ParseValueExpression(RuleJsonValue node)
     {

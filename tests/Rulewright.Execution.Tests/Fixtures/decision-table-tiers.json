@@ -1,0 +1,29 @@
+{
+  "ruleSet": {
+    "decisionTable": {
+      "hitPolicy": "first",
+      "inputs": [
+        { "field": "Customer.Tier", "operator": "Equals" },
+        { "field": "Order.Total", "operator": "GreaterThanOrEqual" }
+      ],
+      "outputs": [ { "target": "Discount" }, { "target": "Tier" } ],
+      "rows": [
+        { "when": ["gold", 100], "then": [25, "gold-priority"] },
+        { "when": ["gold", null], "then": [15, "gold"] },
+        { "when": [null, 200], "then": [10, "bulk"] },
+        { "when": [null, null], "then": [0, "standard"] }
+      ]
+    }
+  },
+  "fact": {
+    "Customer": { "Tier": "gold" },
+    "Order": { "Total": 150 }
+  },
+  "expected": {
+    "firedRules": ["row-0"],
+    "outputs": {
+      "Discount": 25,
+      "Tier": "gold-priority"
+    }
+  }
+}

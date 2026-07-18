@@ -121,6 +121,26 @@ running result.
   the node object otherwise). `5` and `{ "literal": 5 }` parse to the same
   `LiteralExpression` and therefore hash identically.
 
+## Decision tables
+
+A `decisionTable` document is **expanded into an ordinary `RuleSet` at parse time**
+(`RuleSetParser.ExpandDecisionTable`), so the engine, compiler, interpreter, and Core model
+need no awareness of it — tables inherit tracing, hashing, and the compiled/interpreted split
+for free. Each row becomes one rule (priority descending by row order):
+
+- **Conditions.** Each input column pairs a `field` + `operator` (default `Equals`) with the
+  row's `when` cell. A null cell is a wildcard (that column contributes no leaf); the active
+  leaves become a single leaf, an `AND` group, or — when a row is all wildcards — a
+  synthesized always-true catch-all (`field IsNotNull OR field IsNull`).
+- **Actions.** Each output column pairs a `target` + `type` (default `setOutput`) with the
+  row's `then` cell, parsed as a value expression (so cells can be computed). A null cell
+  writes nothing for that output.
+- **Hit policy.** `collect` (default) leaves rows independent — all matches apply in order.
+  `first` bakes exclusivity into the conditions: row *n* is `AND(ownₙ, ¬own₀, …, ¬ownₙ₋₁)`, so
+  the rows are mutually exclusive and exactly the first match fires under normal evaluation —
+  no new engine flag. Structural validation (cell counts, operator/type vocabularies, cell
+  shapes) happens in `RuleSetValidator` with the same JSON-pointer error surface as rules.
+
 ## Null semantics
 
 Identical across compiled and interpreted paths, exercised by shared tests:

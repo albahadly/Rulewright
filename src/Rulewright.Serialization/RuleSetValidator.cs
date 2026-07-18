@@ -33,7 +33,11 @@ public static class RuleSetValidator
             return new RuleSetValidationResult(errors);
         }
 
-        if (document.TryGetProperty("rules", out _))
+        if (document.TryGetProperty("decisionTable", out RuleJsonValue decisionTable))
+        {
+            ValidateDecisionTable(decisionTable, "/decisionTable", errors);
+        }
+        else if (document.TryGetProperty("rules", out _))
         {
             ValidateRuleSet(document, errors);
         }
@@ -482,4 +486,228 @@ public static class RuleSetValidator
             ValidateValueExpression(operands.Items[i], path + "/operands/" + i.ToString(CultureInfo.InvariantCulture), errors);
         }
     }
+
+    private static void ValidateDecisionTable(RuleJsonValue table, string path, List<RuleValidationError> errors)
+    {
+        if (table.Kind != RuleJsonValueKind.Object)
+        {
+            errors.Add(new RuleValidationError(path, "'decisionTable' must be a JSON object."));
+            return;
+        }
+
+        if (table.TryGetProperty("hitPolicy", out RuleJsonValue hitPolicy)
+            && (hitPolicy.Kind != RuleJsonValueKind.String || hitPolicy.GetString() is not ("collect" or "first")))
+        {
+            errors.Add(new RuleValidationError(path + "/hitPolicy", "'hitPolicy' must be \"collect\" or \"first\"."));
+        }
+
+        int inputCount = ValidateDecisionInputs(table, path, errors, out RuleJsonValue inputs);
+        int outputCount = ValidateDecisionOutputs(table, path, errors);
+
+        if (!table.TryGetProperty("rows", out RuleJsonValue rows) || rows.Kind != RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path + "/rows", "'rows' must be a non-empty array."));
+            return;
+        }
+
+        if (rows.Items.Count == 0)
+        {
+            errors.Add(new RuleValidationError(path + "/rows", "'rows' must contain at least one row."));
+            return;
+        }
+
+        for (int r = 0; r < rows.Items.Count; r++)
+        {
+            string rowPath = path + "/rows/" + r.ToString(CultureInfo.InvariantCulture);
+            ValidateDecisionRow(rows.Items[r], rowPath, inputs, inputCount, outputCount, errors);
+        }
+    }
+
+    private static int ValidateDecisionInputs(RuleJsonValue table, string path, List<RuleValidationError> errors, out RuleJsonValue inputs)
+    {
+        if (!table.TryGetProperty("inputs", out inputs) || inputs.Kind != RuleJsonValueKind.Array || inputs.Items.Count == 0)
+        {
+            errors.Add(new RuleValidationError(path + "/inputs", "'inputs' must be a non-empty array of input columns."));
+            return 0;
+        }
+
+        for (int i = 0; i < inputs.Items.Count; i++)
+        {
+            string columnPath = path + "/inputs/" + i.ToString(CultureInfo.InvariantCulture);
+            RuleJsonValue column = inputs.Items[i];
+            if (column.Kind != RuleJsonValueKind.Object)
+            {
+                errors.Add(new RuleValidationError(columnPath, "An input column must be a JSON object."));
+                continue;
+            }
+
+            if (!column.TryGetProperty("field", out RuleJsonValue field)
+                || field.Kind != RuleJsonValueKind.String
+                || field.GetString().Length == 0)
+            {
+                errors.Add(new RuleValidationError(columnPath + "/field", "Input 'field' must be a non-empty string."));
+            }
+
+            if (column.TryGetProperty("operator", out RuleJsonValue op)
+                && (op.Kind != RuleJsonValueKind.String
+                    || !OperatorMap.TryParse(op.GetString(), out Core.ConditionOperator parsed)
+                    || !IsTableOperator(parsed)))
+            {
+                errors.Add(new RuleValidationError(
+                    columnPath + "/operator",
+                    "Input 'operator' must be a value-comparison operator (not IsNull, IsNotNull, or custom)."));
+            }
+        }
+
+        return inputs.Items.Count;
+    }
+
+    private static int ValidateDecisionOutputs(RuleJsonValue table, string path, List<RuleValidationError> errors)
+    {
+        if (!table.TryGetProperty("outputs", out RuleJsonValue outputs) || outputs.Kind != RuleJsonValueKind.Array || outputs.Items.Count == 0)
+        {
+            errors.Add(new RuleValidationError(path + "/outputs", "'outputs' must be a non-empty array of output columns."));
+            return 0;
+        }
+
+        for (int i = 0; i < outputs.Items.Count; i++)
+        {
+            string columnPath = path + "/outputs/" + i.ToString(CultureInfo.InvariantCulture);
+            RuleJsonValue column = outputs.Items[i];
+            if (column.Kind != RuleJsonValueKind.Object)
+            {
+                errors.Add(new RuleValidationError(columnPath, "An output column must be a JSON object."));
+                continue;
+            }
+
+            if (!column.TryGetProperty("target", out RuleJsonValue target)
+                || target.Kind != RuleJsonValueKind.String
+                || target.GetString().Length == 0)
+            {
+                errors.Add(new RuleValidationError(columnPath + "/target", "Output 'target' must be a non-empty string."));
+            }
+
+            if (column.TryGetProperty("type", out RuleJsonValue type)
+                && (type.Kind != RuleJsonValueKind.String || !IsActionType(type.GetString())))
+            {
+                errors.Add(new RuleValidationError(
+                    columnPath + "/type",
+                    $"Output 'type' must be \"{Core.RuleAction.SetOutputType}\", "
+                    + $"\"{Core.RuleAction.AddToOutputType}\", or \"{Core.RuleAction.AppendToOutputType}\"."));
+            }
+        }
+
+        return outputs.Items.Count;
+    }
+
+    private static void ValidateDecisionRow(
+        RuleJsonValue row,
+        string path,
+        RuleJsonValue inputs,
+        int inputCount,
+        int outputCount,
+        List<RuleValidationError> errors)
+    {
+        if (row.Kind != RuleJsonValueKind.Object)
+        {
+            errors.Add(new RuleValidationError(path, "A row must be a JSON object."));
+            return;
+        }
+
+        if (!row.TryGetProperty("when", out RuleJsonValue when) || when.Kind != RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path + "/when", "Row 'when' must be an array of input cells."));
+        }
+        else if (inputCount > 0 && when.Items.Count != inputCount)
+        {
+            errors.Add(new RuleValidationError(
+                path + "/when",
+                $"Row 'when' must have {inputCount.ToString(CultureInfo.InvariantCulture)} cell(s), one per input."));
+        }
+        else
+        {
+            for (int c = 0; c < when.Items.Count && c < inputCount; c++)
+            {
+                ValidateWhenCell(inputs.Items[c], when.Items[c], path + "/when/" + c.ToString(CultureInfo.InvariantCulture), errors);
+            }
+        }
+
+        if (!row.TryGetProperty("then", out RuleJsonValue then) || then.Kind != RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path + "/then", "Row 'then' must be an array of output cells."));
+        }
+        else if (outputCount > 0 && then.Items.Count != outputCount)
+        {
+            errors.Add(new RuleValidationError(
+                path + "/then",
+                $"Row 'then' must have {outputCount.ToString(CultureInfo.InvariantCulture)} cell(s), one per output."));
+        }
+        else
+        {
+            for (int c = 0; c < then.Items.Count; c++)
+            {
+                // A null 'then' cell skips that output; any other value is a value expression.
+                if (then.Items[c].Kind != RuleJsonValueKind.Null)
+                {
+                    ValidateValueExpression(then.Items[c], path + "/then/" + c.ToString(CultureInfo.InvariantCulture), errors);
+                }
+            }
+        }
+    }
+
+    private static void ValidateWhenCell(RuleJsonValue column, RuleJsonValue cell, string path, List<RuleValidationError> errors)
+    {
+        // A null cell is a wildcard (no condition for that column).
+        if (cell.Kind == RuleJsonValueKind.Null)
+        {
+            return;
+        }
+
+        Core.ConditionOperator op = Core.ConditionOperator.Equal;
+        if (column.Kind == RuleJsonValueKind.Object
+            && column.TryGetProperty("operator", out RuleJsonValue opValue)
+            && opValue.Kind == RuleJsonValueKind.String)
+        {
+            OperatorMap.TryParse(opValue.GetString(), out op);
+        }
+
+        switch (op)
+        {
+            case Core.ConditionOperator.In:
+            case Core.ConditionOperator.NotIn:
+                if (cell.Kind != RuleJsonValueKind.Array || cell.Items.Count == 0)
+                {
+                    errors.Add(new RuleValidationError(path, "This cell must be a non-empty array (its column uses In/NotIn)."));
+                }
+
+                break;
+
+            case Core.ConditionOperator.Contains:
+            case Core.ConditionOperator.StartsWith:
+            case Core.ConditionOperator.EndsWith:
+            case Core.ConditionOperator.MatchesRegex:
+                if (cell.Kind != RuleJsonValueKind.String)
+                {
+                    errors.Add(new RuleValidationError(path, "This cell must be a string (its column uses a string operator)."));
+                }
+
+                break;
+
+            default:
+                if (cell.Kind is RuleJsonValueKind.Object or RuleJsonValueKind.Array)
+                {
+                    errors.Add(new RuleValidationError(path, "This cell must be a scalar or null."));
+                }
+
+                break;
+        }
+    }
+
+    private static bool IsTableOperator(Core.ConditionOperator op)
+        => op is not (Core.ConditionOperator.IsNull or Core.ConditionOperator.IsNotNull or Core.ConditionOperator.Custom);
+
+    private static bool IsActionType(string type)
+        => type == Core.RuleAction.SetOutputType
+        || type == Core.RuleAction.AddToOutputType
+        || type == Core.RuleAction.AppendToOutputType;
 }

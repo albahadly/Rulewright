@@ -3,14 +3,15 @@ using System;
 namespace Rulewright.Core;
 
 /// <summary>
-/// A leaf condition comparing a fact field (resolved via a dotted path such as
-/// <c>Customer.Age</c>) against a constant value, or delegating to a registered
-/// custom function.
+/// A leaf condition comparing a left-hand side against a constant value, or delegating to a
+/// registered custom function. The left-hand side is usually a fact field (a dotted path such
+/// as <c>Customer.Age</c>), but can also be a computed <see cref="Left"/> value expression
+/// (such as <c>Order.Total * 0.9</c>).
 /// </summary>
 public sealed class ConditionLeaf : ConditionNode
 {
     /// <summary>
-    /// Creates a leaf condition.
+    /// Creates a leaf condition whose left-hand side is a fact field (or a custom function).
     /// </summary>
     /// <param name="field">
     /// Dotted path resolved against the fact. Required for every operator except
@@ -50,8 +51,39 @@ public sealed class ConditionLeaf : ConditionNode
         FunctionName = functionName;
     }
 
-    /// <summary>Dotted field path, or null for a field-less custom condition.</summary>
+    /// <summary>
+    /// Creates a leaf condition whose left-hand side is a computed value expression.
+    /// </summary>
+    /// <param name="left">The expression whose value is compared against <paramref name="value"/>.</param>
+    /// <param name="operator">The comparison operator (not <see cref="ConditionOperator.Custom"/>).</param>
+    /// <param name="value">The comparison operand (see the field constructor).</param>
+    /// <exception cref="ArgumentNullException"><paramref name="left"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="operator"/> is <see cref="ConditionOperator.Custom"/>.</exception>
+    public ConditionLeaf(ValueExpression left, ConditionOperator @operator, object? value)
+    {
+        if (left is null)
+        {
+            throw new ArgumentNullException(nameof(left));
+        }
+
+        if (@operator == ConditionOperator.Custom)
+        {
+            throw new ArgumentException("A custom condition uses a field, not an expression.", nameof(@operator));
+        }
+
+        Left = left;
+        Operator = @operator;
+        Value = value;
+    }
+
+    /// <summary>Dotted field path, or null for a computed (<see cref="Left"/>) or field-less custom condition.</summary>
     public string? Field { get; }
+
+    /// <summary>
+    /// The computed left-hand side, or null when the left-hand side is the <see cref="Field"/>
+    /// path (or the whole fact for a field-less custom condition).
+    /// </summary>
+    public ValueExpression? Left { get; }
 
     /// <summary>The comparison operator.</summary>
     public ConditionOperator Operator { get; }

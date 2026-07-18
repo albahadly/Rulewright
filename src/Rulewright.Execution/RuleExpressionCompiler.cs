@@ -33,6 +33,9 @@ internal static class RuleExpressionCompiler
 
     private static readonly Expression NullObject = Expression.Constant(null, typeof(object));
 
+    private static readonly MethodInfo ApplyOperatorMethod =
+        typeof(RuleInterpreter).GetMethod(nameof(RuleInterpreter.ApplyOperator), BindingFlags.Static | BindingFlags.NonPublic)!;
+
     private static readonly MethodInfo AddMethod = ValueOp(nameof(ValueExpressionOps.Add));
     private static readonly MethodInfo SubtractMethod = ValueOp(nameof(ValueExpressionOps.Subtract));
     private static readonly MethodInfo MultiplyMethod = ValueOp(nameof(ValueExpressionOps.Multiply));
@@ -314,6 +317,19 @@ internal static class RuleExpressionCompiler
 
     private static Expression BuildLeaf(ConditionLeaf leaf, ParameterExpression fact, Context context)
     {
+        if (leaf.Left is not null)
+        {
+            // Computed left-hand side: compile it (field access stays reflection-free), then
+            // apply the operator through the shared boxed evaluator so the result matches the
+            // interpreter exactly.
+            Expression left = BuildValueExpression(leaf.Left, fact, context.Rule);
+            return Expression.Call(
+                ApplyOperatorMethod,
+                Expression.Constant(leaf, typeof(ConditionLeaf)),
+                left,
+                Expression.Constant(context.Functions, typeof(IReadOnlyDictionary<string, IRuleFunction>)));
+        }
+
         if (leaf.Field is null)
         {
             // Field-less custom condition: the function receives the whole fact.

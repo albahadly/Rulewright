@@ -309,6 +309,11 @@ public static class RuleSetParser
             }
         }
 
+        if (condition.TryGetProperty("expression", out RuleJsonValue leftExpression))
+        {
+            return new ConditionLeaf(ParseValueExpression(leftExpression), @operator, value);
+        }
+
         return new ConditionLeaf(field, @operator, value, functionName);
     }
 }

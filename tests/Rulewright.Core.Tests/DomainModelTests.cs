@@ -51,7 +51,7 @@ public class DomainModelTests
     [Fact]
     public void ConditionLeaf_NonCustomWithoutField_Throws()
     {
-        Assert.Throws<ArgumentException>(() => new ConditionLeaf(null, ConditionOperator.Equal, 1L));
+        Assert.Throws<ArgumentException>(() => new ConditionLeaf((string?)null, ConditionOperator.Equal, 1L));
     }
 
     [Fact]

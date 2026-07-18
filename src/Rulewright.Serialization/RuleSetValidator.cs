@@ -239,8 +239,15 @@ public static class RuleSetValidator
             hasField = false;
         }
 
+        bool hasExpression = leaf.TryGetProperty("expression", out RuleJsonValue leftExpression);
+
         if (parsedOperator == Core.ConditionOperator.Custom)
         {
+            if (hasExpression)
+            {
+                errors.Add(new RuleValidationError(path + "/expression", "'expression' is not allowed with operator \"custom\"; use 'field'."));
+            }
+
             if (!leaf.TryGetProperty("name", out RuleJsonValue name)
                 || name.Kind != RuleJsonValueKind.String
                 || name.GetString().Length == 0)
@@ -251,9 +258,19 @@ public static class RuleSetValidator
             return;
         }
 
-        if (!hasField)
+        // Non-custom leaves take their left-hand side from 'field' (a dotted path) or
+        // 'expression' (a computed value), but not both.
+        if (hasField && hasExpression)
         {
-            errors.Add(new RuleValidationError(path, $"'field' is required for operator '{op.GetString()}'."));
+            errors.Add(new RuleValidationError(path, "A condition must have 'field' or 'expression', not both."));
+        }
+        else if (hasExpression)
+        {
+            ValidateValueExpression(leftExpression, path + "/expression", errors);
+        }
+        else if (!hasField)
+        {
+            errors.Add(new RuleValidationError(path, $"'field' or 'expression' is required for operator '{op.GetString()}'."));
         }
 
         bool hasValue = leaf.TryGetProperty("value", out RuleJsonValue value);

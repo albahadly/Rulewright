@@ -173,7 +173,11 @@
         "field": {
           "type": "string",
           "minLength": 1,
-          "description": "Dotted path resolved against the fact, e.g. 'Customer.Age'."
+          "description": "Dotted path resolved against the fact, e.g. 'Customer.Age'. Use this or 'expression' as the left-hand side, not both."
+        },
+        "expression": {
+          "$ref": "#/$defs/expression",
+          "description": "A computed left-hand side, e.g. Order.Total * 0.9. An alternative to 'field'; not allowed with operator 'custom'."
         },
         "operator": {
           "enum": [
@@ -208,9 +212,10 @@
       "allOf": [
         {
           "if": { "properties": { "operator": { "const": "custom" } }, "required": ["operator"] },
-          "then": { "required": ["name"] },
-          "else": { "required": ["field"] }
+          "then": { "required": ["name"], "not": { "required": ["expression"] } },
+          "else": { "anyOf": [ { "required": ["field"] }, { "required": ["expression"] } ] }
         },
+        { "not": { "required": ["field", "expression"] } },
         {
           "if": { "properties": { "operator": { "enum": ["In", "NotIn"] } }, "required": ["operator"] },
           "then": {

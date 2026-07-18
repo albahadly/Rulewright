@@ -131,6 +131,22 @@ registered on the builder **at compile time**.
   stored inside dictionaries. Missing keys resolve to null. The result reports
   `CompilationMode.Interpreted` so the slower path is visible, never silent.
 
+### Computed left-hand sides
+
+A condition leaf can compare a **computed expression** to a value, not only a field — use
+`expression` in place of `field`, with the same value-expression vocabulary as actions:
+
+```json
+{ "expression": { "op": "divide", "operands": [ { "field": "Order.Total" }, { "field": "Order.ItemCount" } ] },
+  "operator": "GreaterThan", "value": 25 }
+```
+
+That is, *average item price > 25*. The compiled path evaluates the left side with the same
+reflection-free field access as a plain leaf, then both paths compare through one shared
+operator routine, so a `field` leaf and an equivalent `expression` leaf agree. A leaf uses
+`field` **or** `expression` (not both); `custom` uses `field`. See
+[examples/15-condition-side-expression.json](examples/15-condition-side-expression.json).
+
 ### Null semantics (both paths, by design)
 
 A null field value (or null anywhere along the path) makes every operator return

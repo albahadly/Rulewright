@@ -142,7 +142,13 @@ public static class RuleHasher
         var leaf = (ConditionLeaf)node;
         builder.Append('{');
         bool first = true;
-        if (leaf.Field is not null)
+        if (leaf.Left is not null)
+        {
+            builder.Append("\"expression\":");
+            AppendExpression(builder, leaf.Left);
+            first = false;
+        }
+        else if (leaf.Field is not null)
         {
             builder.Append("\"field\":");
             AppendString(builder, leaf.Field);

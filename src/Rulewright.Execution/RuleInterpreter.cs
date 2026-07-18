@@ -79,8 +79,20 @@ internal static class RuleInterpreter
 
     private static bool EvaluateLeaf(ConditionLeaf leaf, object fact, IReadOnlyDictionary<string, IRuleFunction> functions)
     {
-        object? fieldValue = leaf.Field is null ? fact : ResolvePath(fact, leaf.Field);
+        object? fieldValue = leaf.Left is not null
+            ? ActionExpressionInterpreter.EvaluateValue(leaf.Left, fact)
+            : leaf.Field is null ? fact : ResolvePath(fact, leaf.Field);
 
+        return ApplyOperator(leaf, fieldValue, functions);
+    }
+
+    /// <summary>
+    /// Applies a leaf's operator to an already-resolved left-hand value. Shared by the
+    /// interpreter and by the compiled path's computed-left-hand-side leaves, so a field
+    /// leaf and an expression leaf with the same value compare identically.
+    /// </summary>
+    internal static bool ApplyOperator(ConditionLeaf leaf, object? fieldValue, IReadOnlyDictionary<string, IRuleFunction> functions)
+    {
         switch (leaf.Operator)
         {
             case ConditionOperator.IsNull:

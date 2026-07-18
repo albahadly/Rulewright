@@ -75,6 +75,12 @@ Rulewright.Json.Newtonsoft ──┤ (adapters: JSON text → neutral DOM)
 - **Custom functions** are looked up in the registry at compile time and embedded as
   constants — the compiled delegate calls `IRuleFunction.Evaluate` directly, no
   per-evaluation name resolution.
+- **Computed left-hand sides** (`ConditionLeaf.Left`) compile the same `ValueExpression`
+  used by actions (so field access stays reflection-free), then compare through the shared
+  `RuleInterpreter.ApplyOperator` — the exact boxed operator logic the interpreter uses.
+  A field leaf keeps its fast typed comparison; only computed-left-hand-side leaves take the
+  boxed path, and both agree by construction. Field references are type-checked against the
+  fact at compile time, like any other field.
 
 ## Action values (constant and computed)
 

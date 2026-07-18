@@ -70,4 +70,29 @@ public class ValueExpressionTests
         Assert.Throws<ArgumentNullException>(
             () => new RuleAction(RuleAction.SetOutputType, "Discount", (ValueExpression)null!));
     }
+
+    [Fact]
+    public void ConditionLeaf_FromExpression_SetsLeftAndNullField()
+    {
+        var left = new FieldExpression("Order.Total");
+        var leaf = new ConditionLeaf(left, ConditionOperator.GreaterThan, 100L);
+
+        Assert.Same(left, leaf.Left);
+        Assert.Null(leaf.Field);
+        Assert.Equal(ConditionOperator.GreaterThan, leaf.Operator);
+    }
+
+    [Fact]
+    public void ConditionLeaf_ExpressionWithCustomOperator_Throws()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new ConditionLeaf(new FieldExpression("A"), ConditionOperator.Custom, null));
+    }
+
+    [Fact]
+    public void ConditionLeaf_NullExpression_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new ConditionLeaf((ValueExpression)null!, ConditionOperator.Equal, 1L));
+    }
 }

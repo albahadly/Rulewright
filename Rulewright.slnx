@@ -14,6 +14,7 @@
     <File Path="examples/11-decision-table-collect-scoring.json" />
     <File Path="examples/12-custom-function.json" />
     <File Path="examples/13-if-else-append.json" />
+    <File Path="examples/14-if-else-decision-table.json" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Rulewright.Sample.AspNetCore/Rulewright.Sample.AspNetCore.csproj" />

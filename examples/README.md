@@ -62,7 +62,8 @@ or must exist on the type (typed facts) — see `05-null-and-coalesce.json`.
 | [10-decision-table-first.json](10-decision-table-first.json) | A decision table with `hitPolicy: "first"` — only the first matching row applies. |
 | [11-decision-table-collect-scoring.json](11-decision-table-collect-scoring.json) | A decision table with `hitPolicy: "collect"` feeding accumulator outputs. |
 | [12-custom-function.json](12-custom-function.json) | The `custom` operator, delegating a leaf to a function registered on the builder. |
-| [13-if-else-append.json](13-if-else-append.json) | If / else: a rule and its negation (`NOT`) append different values to the same output. |
+| [13-if-else-append.json](13-if-else-append.json) | If / else with plain rules: a rule and its negation (`NOT`) append different values to the same output. |
+| [14-if-else-decision-table.json](14-if-else-decision-table.json) | The same if / else as 13, expressed DRY as a `first` decision table (the condition is written once). |
 
 ## Key ideas the examples lean on
 

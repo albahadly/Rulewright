@@ -1,14 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
-    <Description>Custom function catalog and discovery APIs for Rulewright (planned; see the README roadmap).</Description>
-    <!-- Scaffold project: implementation lands in a follow-up milestone. -->
-    <IsPackable>false</IsPackable>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <Description>Built-in custom functions and registration/discovery helpers for Rulewright (the 'custom' operator).</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Rulewright.Core\Rulewright.Core.csproj" />
+    <ProjectReference Include="..\Rulewright.Execution\Rulewright.Execution.csproj" />
   </ItemGroup>
 
 </Project>

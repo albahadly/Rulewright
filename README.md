@@ -123,6 +123,23 @@ Comparison `Equals`, `NotEquals`, `GreaterThan`, `GreaterThanOrEqual`, `LessThan
 `AND`, `OR`, `NOT` · Extensible `custom` + `name`, resolved against functions
 registered on the builder **at compile time**.
 
+For the `custom` operator, `Rulewright.Extensions.Functions` ships a curated catalog of
+ready-made predicates and helpers to register them:
+
+```csharp
+var engine = new RulewrightBuilder()
+    .UseJsonReader(new SystemTextJsonReader())
+    .RegisterBuiltInFunctions()                       // IsEven, EqualsIgnoreCase, IsWeekend, …
+    .RegisterFunctionsFrom(typeof(Program).Assembly)  // scan your own IRuleFunction classes
+    .Build();
+```
+
+The catalog covers what the closed operator set deliberately doesn't: `IsNullOrEmpty`,
+`IsNullOrWhiteSpace`, `EqualsIgnoreCase`, `IsEmail`, `IsEven`/`IsOdd`, `IsPositive`/`IsNegative`,
+`DivisibleBy`, `IsBetweenInclusive`, `IsWeekend`/`IsWeekday`, and `IsInPast`/`IsInFuture` (with an
+injectable clock). Each is **total** — an unexpected value type yields `false`, never an
+exception. Write your own with `new NamedRuleFunction("MyCheck", (field, value) => …)`.
+
 ### Field resolution
 
 `"field": "Customer.Age"` resolves a dotted path against the fact:
@@ -331,7 +348,7 @@ Requires the .NET 8+ SDK. On Windows, the test suite and the
 | `Rulewright.Execution` | Expression-tree compiler, interpreter fallback, delegate cache, `RulewrightBuilder` / `RulewrightEngine`. |
 | `Rulewright.Json.SystemText` | `IRuleJsonReader` adapter for System.Text.Json + `JsonElement` fact helpers. |
 | `Rulewright.Json.NewtonsoftJson` | `IRuleJsonReader` adapter for Newtonsoft.Json + `JToken` fact helpers. |
-| `Rulewright.Extensions.Functions` | *(scaffold — planned)* function catalog & discovery. |
+| `Rulewright.Extensions.Functions` | Built-in `custom`-operator predicates + registration/assembly-scan discovery helpers. |
 
 ## Non-goals for v1
 

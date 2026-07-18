@@ -72,9 +72,10 @@ foreach (FiredRule fired in result.FiredRules)
   overhead when disabled** (separate compiled fast path, not a runtime flag check).
 - **Designed for a visual future.** The schema keeps logic and presentation apart:
   the `layout` key is reserved for drag-and-drop canvas tools and ignored by the
-  engine. A formal JSON Schema (`docs/schema/rule-schema.json`) plus a standalone
-  validator with JSON-pointer errors are the contract a future rule-builder UI
-  plugs into.
+  engine. A formal JSON Schema (`docs/schema/rule-schema.json`), a standalone
+  validator with JSON-pointer errors, and a runtime **discovery catalog**
+  (`RuleSchemaCatalog` + `engine.RegisteredFunctions`) are the contract a future
+  rule-builder UI plugs into.
 
 ### Why not NRules or Microsoft RulesEngine?
 
@@ -263,6 +264,29 @@ output cell skips that output for the row. Two hit policies:
 - **`first`** — only the first matching row applies. Encoded by ANDing each row with the
   negation of every earlier row's condition, so exactly one row fires under normal evaluation.
 
+### Discovering the vocabulary
+
+The rule schema is a **closed, pure-data vocabulary** — and it is introspectable at runtime, so
+a rule-builder UI (or codegen, or docs) can enumerate exactly what it may author instead of
+hard-coding operator lists. `RuleSchemaCatalog` exposes the built-in vocabulary as structured
+metadata, and `engine.RegisteredFunctions` exposes the `custom` functions registered on a given
+engine — together, the complete set of authoring choices.
+
+```csharp
+foreach (var op in RuleSchemaCatalog.ConditionOperators)
+    Console.WriteLine($"{op.JsonName}: value={op.ValueKind}, expressionLeft={op.AllowsExpressionLeft}");
+// Equals: value=Scalar, expressionLeft=True   ·   IsNull: value=None …   ·   custom: value=Custom …
+
+RuleSchemaCatalog.ExpressionOperators;  // op, operand arity (min/max), category
+RuleSchemaCatalog.ActionTypes;          // setOutput/addToOutput/appendToOutput/removeOutput + RequiresValue
+RuleSchemaCatalog.LogicalOperators;     // AND/OR/NOT + child arity
+
+engine.RegisteredFunctions;             // e.g. ["IsBusinessDay", "IsWeekend"] — for the custom operator
+```
+
+The catalog is **derived from the same maps and enums the parser and validator use**, so it can
+never drift from what the engine actually accepts.
+
 ## Performance
 
 The benchmark suite (`tests/Rulewright.Benchmarks`, BenchmarkDotNet) measures
@@ -319,9 +343,9 @@ Called out explicitly so expectations are clear:
 - **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
   `concat`, `coalesce` over fact fields), accumulating action types
   (`addToOutput`/`appendToOutput`), a `removeOutput` retract action, first-class `else`
-  actions, and decision-table authoring have shipped. Also on the track: Newtonsoft
-  adapter, function catalog/discovery API, and the NRules/RulesEngine benchmark comparison
-  in `docs/benchmarks.md`.
+  actions, decision-table authoring, and a schema discovery catalog (`RuleSchemaCatalog` +
+  `engine.RegisteredFunctions`) have shipped. Also on the track: Newtonsoft adapter and the
+  NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
   From v1 on, changes to the `layout` contract or the JSON Schema are treated as
   breaking changes.

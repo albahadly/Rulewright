@@ -21,6 +21,7 @@ public sealed class RulewrightEngine
 
     private readonly IRuleJsonReader? _jsonReader;
     private readonly IReadOnlyDictionary<string, IRuleFunction> _functions;
+    private readonly ReadOnlyCollection<string> _registeredFunctions;
     private readonly ConcurrentDictionary<CompiledCacheKey, object> _compiledRules =
         new ConcurrentDictionary<CompiledCacheKey, object>();
 
@@ -28,7 +29,19 @@ public sealed class RulewrightEngine
     {
         _jsonReader = jsonReader;
         _functions = functions;
+
+        var names = new List<string>(functions.Keys);
+        names.Sort(StringComparer.Ordinal);
+        _registeredFunctions = new ReadOnlyCollection<string>(names);
     }
+
+    /// <summary>
+    /// The names of the <c>custom</c> functions registered on this engine, sorted ordinally.
+    /// Together with the built-in vocabulary in <see cref="Serialization.RuleSchemaCatalog"/>,
+    /// this is the full set of authoring choices a rule-builder UI can offer against this
+    /// engine — the one part of the vocabulary that varies per configuration.
+    /// </summary>
+    public IReadOnlyList<string> RegisteredFunctions => _registeredFunctions;
 
     /// <summary>
     /// Parses, validates, and prepares a JSON rule document (a single rule or a rule set)

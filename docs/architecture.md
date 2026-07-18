@@ -158,6 +158,21 @@ for free. Each row becomes one rule (priority descending by row order):
   no new engine flag. Structural validation (cell counts, operator/type vocabularies, cell
   shapes) happens in `RuleSetValidator` with the same JSON-pointer error surface as rules.
 
+## Schema discovery
+
+The authoring vocabulary is closed and finite, so it can be **enumerated at runtime** for a
+rule-builder UI (or codegen/docs) rather than hard-coded twice. `RuleSchemaCatalog`
+(Serialization) exposes it as structured metadata — condition operators (with their
+`OperatorValueKind` and whether they allow a computed left-hand side), logical combinators
+(with child arity), expression operators (with operand arity and category), and action types
+(with `RequiresValue`/`Effect`). The catalog is **derived from the same sources the parser and
+validator use** — `OperatorMap`, `ExpressionOperatorMap`, `RequiredArity`, and the domain enums
+— iterating the enums so a newly added operator appears automatically and cannot drift from what
+the engine accepts. The classification (value kinds, categories) is a coarser authoring hint;
+`RuleSetValidator` remains the authority on what actually validates. The one per-engine variable
+— the registered `custom` functions — is exposed separately as `RulewrightEngine.RegisteredFunctions`,
+since it is instance state rather than fixed vocabulary.
+
 ## Null semantics
 
 Identical across compiled and interpreted paths, exercised by shared tests:

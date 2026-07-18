@@ -92,7 +92,10 @@ NRules is the right tool for forward-chaining inference over a working memory.
 Microsoft RulesEngine embeds C# expression *strings* in JSON, which means arbitrary
 code in rule files and runtime string compilation. Rulewright's rules are pure data:
 a closed, validatable operator vocabulary that a UI can safely generate and a
-reviewer can safely diff.
+reviewer can safely diff. For the stateless "evaluate this fact against these rules"
+case, Rulewright is also measurably faster and leaner than both — see
+[`docs/benchmarks.md`](docs/benchmarks.md) for a like-for-like harness (with a
+fairness check that all three flag the same matches).
 
 ## Install
 
@@ -290,15 +293,21 @@ never drift from what the engine actually accepts.
 ## Performance
 
 The benchmark suite (`tests/Rulewright.Benchmarks`, BenchmarkDotNet) measures
-compiled vs interpreted throughput at 1 / 100 / 10,000 rules and cold-load vs
-warm-cache cost. Run it with:
+compiled vs interpreted throughput at 1 / 100 / 10,000 rules, cold-load vs
+warm-cache cost, and a like-for-like comparison against NRules and Microsoft
+RulesEngine. Run it with:
 
 ```
 dotnet run -c Release --project tests/Rulewright.Benchmarks -- --filter '*'
 ```
 
-Published results and a comparison harness against NRules and Microsoft RulesEngine
-land in `docs/benchmarks.md` (roadmap).
+A warm compiled evaluation of a small rule set is on the order of **~100 ns/rule**
+with minimal allocation; the dictionary interpreter is ~1.8× slower by design, and
+tracing (a separate compiled delegate) costs ~3× **only when enabled**. Against the
+same rule set and fact, Rulewright evaluates the stateless one-shot case faster and
+far leaner than both NRules and Microsoft RulesEngine — full tables, methodology, and
+a fairness check are in [`docs/benchmarks.md`](docs/benchmarks.md). *(Numbers are
+illustrative and machine-specific; re-run the suite on your hardware.)*
 
 ## Building from source
 

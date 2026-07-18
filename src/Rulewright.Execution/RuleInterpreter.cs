@@ -145,7 +145,7 @@ internal static class RuleInterpreter
         return false;
     }
 
-    private static object? ResolvePath(object fact, string path)
+    internal static object? ResolvePath(object fact, string path)
     {
         object? current = fact;
         foreach (string segment in path.Split('.'))

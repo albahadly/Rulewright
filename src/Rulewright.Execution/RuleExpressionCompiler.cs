@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -31,6 +32,17 @@ internal static class RuleExpressionCompiler
     private static readonly MethodInfo RegexIsMatchMethod =
         typeof(Regex).GetMethod(nameof(Regex.IsMatch), new[] { typeof(string) })!;
 
+    private static readonly Expression NullObject = Expression.Constant(null, typeof(object));
+
+    private static readonly MethodInfo AddMethod = ValueOp(nameof(ValueExpressionOps.Add));
+    private static readonly MethodInfo SubtractMethod = ValueOp(nameof(ValueExpressionOps.Subtract));
+    private static readonly MethodInfo MultiplyMethod = ValueOp(nameof(ValueExpressionOps.Multiply));
+    private static readonly MethodInfo DivideMethod = ValueOp(nameof(ValueExpressionOps.Divide));
+    private static readonly MethodInfo ModuloMethod = ValueOp(nameof(ValueExpressionOps.Modulo));
+    private static readonly MethodInfo NegateMethod = ValueOp(nameof(ValueExpressionOps.Negate));
+    private static readonly MethodInfo ConcatMethod = ValueOp(nameof(ValueExpressionOps.Concat));
+    private static readonly MethodInfo CoalesceMethod = ValueOp(nameof(ValueExpressionOps.Coalesce));
+
     internal static CompiledRule<TFact> Compile<TFact>(
         Rule rule,
         IReadOnlyDictionary<string, IRuleFunction> functions,
@@ -48,8 +60,205 @@ internal static class RuleExpressionCompiler
         Func<TFact, bool?[], bool> tracedPredicate =
             Expression.Lambda<Func<TFact, bool?[], bool>>(tracedBody, fact, results).Compile();
 
-        return new CompiledRule<TFact>(predicate, tracedPredicate);
+        Func<TFact, IReadOnlyDictionary<string, object?>>? produceOutputs = CompileOutputs<TFact>(rule);
+
+        return new CompiledRule<TFact>(predicate, tracedPredicate, produceOutputs);
     }
+
+    /// <summary>
+    /// Compiles a rule's action outputs into a delegate, but only when at least one action
+    /// is computed. Constant-only rules return null so the engine can reuse the rule's
+    /// pre-materialized outputs and avoid per-firing allocation. Field references inside
+    /// value expressions are validated against <typeparamref name="TFact"/> at compile time,
+    /// exactly like condition fields.
+    /// </summary>
+    private static Func<TFact, IReadOnlyDictionary<string, object?>>? CompileOutputs<TFact>(Rule rule)
+    {
+        bool anyComputed = false;
+        for (int i = 0; i < rule.Actions.Count; i++)
+        {
+            if (rule.Actions[i].Value is not LiteralExpression)
+            {
+                anyComputed = true;
+                break;
+            }
+        }
+
+        if (!anyComputed)
+        {
+            return null;
+        }
+
+        ParameterExpression fact = Expression.Parameter(typeof(TFact), "fact");
+        int count = rule.Actions.Count;
+        var targets = new string[count];
+        var factories = new Func<TFact, object?>[count];
+        for (int i = 0; i < count; i++)
+        {
+            RuleAction action = rule.Actions[i];
+            targets[i] = action.Target;
+            if (action.Value is LiteralExpression literal)
+            {
+                object? constant = literal.Value;
+                factories[i] = _ => constant;
+            }
+            else
+            {
+                Expression body = BuildValueExpression(action.Value, fact, rule);
+                factories[i] = Expression.Lambda<Func<TFact, object?>>(body, fact).Compile();
+            }
+        }
+
+        return f =>
+        {
+            var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
+            for (int i = 0; i < targets.Length; i++)
+            {
+                outputs[targets[i]] = factories[i](f);
+            }
+
+            return new ReadOnlyDictionary<string, object?>(outputs);
+        };
+    }
+
+    private static Expression BuildValueExpression(ValueExpression expression, ParameterExpression fact, Rule rule)
+    {
+        switch (expression)
+        {
+            case LiteralExpression literal:
+                return Expression.Constant(literal.Value, typeof(object));
+
+            case FieldExpression field:
+                return NavigateValue(fact, field.Path.Split('.'), 0, isRoot: true, field.Path, rule);
+
+            case OperatorExpression op:
+                return BuildOperatorExpression(op, fact, rule);
+
+            default:
+                return NullObject;
+        }
+    }
+
+    private static Expression BuildOperatorExpression(OperatorExpression op, ParameterExpression fact, Rule rule)
+    {
+        switch (op.Operator)
+        {
+            case ExpressionOperator.Add:
+                return Fold(op.Operands, fact, rule, AddMethod);
+
+            case ExpressionOperator.Multiply:
+                return Fold(op.Operands, fact, rule, MultiplyMethod);
+
+            case ExpressionOperator.Subtract:
+                return Expression.Call(
+                    SubtractMethod,
+                    BuildValueExpression(op.Operands[0], fact, rule),
+                    BuildValueExpression(op.Operands[1], fact, rule));
+
+            case ExpressionOperator.Divide:
+                return Expression.Call(
+                    DivideMethod,
+                    BuildValueExpression(op.Operands[0], fact, rule),
+                    BuildValueExpression(op.Operands[1], fact, rule));
+
+            case ExpressionOperator.Modulo:
+                return Expression.Call(
+                    ModuloMethod,
+                    BuildValueExpression(op.Operands[0], fact, rule),
+                    BuildValueExpression(op.Operands[1], fact, rule));
+
+            case ExpressionOperator.Negate:
+                return Expression.Call(NegateMethod, BuildValueExpression(op.Operands[0], fact, rule));
+
+            case ExpressionOperator.Concat:
+                return Expression.Call(ConcatMethod, OperandArray(op.Operands, fact, rule));
+
+            default: // Coalesce
+                return Expression.Call(CoalesceMethod, OperandArray(op.Operands, fact, rule));
+        }
+    }
+
+    private static Expression Fold(
+        IReadOnlyList<ValueExpression> operands,
+        ParameterExpression fact,
+        Rule rule,
+        MethodInfo binaryOp)
+    {
+        Expression accumulator = BuildValueExpression(operands[0], fact, rule);
+        for (int i = 1; i < operands.Count; i++)
+        {
+            accumulator = Expression.Call(binaryOp, accumulator, BuildValueExpression(operands[i], fact, rule));
+        }
+
+        return accumulator;
+    }
+
+    private static Expression OperandArray(IReadOnlyList<ValueExpression> operands, ParameterExpression fact, Rule rule)
+    {
+        var items = new Expression[operands.Count];
+        for (int i = 0; i < operands.Count; i++)
+        {
+            items[i] = BuildValueExpression(operands[i], fact, rule);
+        }
+
+        return Expression.NewArrayInit(typeof(object), items);
+    }
+
+    private static Expression NavigateValue(
+        Expression current,
+        string[] segments,
+        int segmentIndex,
+        bool isRoot,
+        string path,
+        Rule rule)
+    {
+        Type type = current.Type;
+
+        if (Nullable.GetUnderlyingType(type) is not null)
+        {
+            return Expression.Condition(
+                Expression.Property(current, "HasValue"),
+                NavigateValue(Expression.Property(current, "Value"), segments, segmentIndex, isRoot: false, path, rule),
+                NullObject);
+        }
+
+        if (segmentIndex == segments.Length)
+        {
+            return type == typeof(object) ? current : Expression.Convert(current, typeof(object));
+        }
+
+        MemberExpression member;
+        try
+        {
+            member = Expression.PropertyOrField(current, segments[segmentIndex]);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RuleCompilationException(
+                rule.Id,
+                $"expression field path '{path}': member '{segments[segmentIndex]}' was not found on type {type.FullName}.",
+                ex);
+        }
+
+        ParameterExpression variable = Expression.Variable(member.Type, "e" + segmentIndex.ToString(CultureInfo.InvariantCulture));
+        Expression inner = Expression.Block(
+            new[] { variable },
+            Expression.Assign(variable, member),
+            NavigateValue(variable, segments, segmentIndex + 1, isRoot: false, path, rule));
+
+        if (!type.IsValueType && !isRoot)
+        {
+            return Expression.Condition(
+                Expression.NotEqual(current, Expression.Constant(null, type)),
+                inner,
+                NullObject);
+        }
+
+        return inner;
+    }
+
+    private static MethodInfo ValueOp(string name)
+        => typeof(ValueExpressionOps).GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private sealed class Context
     {

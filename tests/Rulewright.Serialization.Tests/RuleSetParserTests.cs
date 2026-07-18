@@ -51,7 +51,7 @@ public class RuleSetParserTests
         RuleAction action = Assert.Single(rule.Actions);
         Assert.Equal(RuleAction.SetOutputType, action.Type);
         Assert.Equal("Discount", action.Target);
-        Assert.Equal(10L, action.Value);
+        Assert.Equal(10L, Assert.IsType<LiteralExpression>(action.Value).Value);
     }
 
     [Fact]

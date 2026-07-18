@@ -109,7 +109,7 @@ dotnet add package Rulewright.Json.SystemText
 | **Rule** | `id` + condition tree + actions (+ `priority`, `enabled`, ignored `layout`). |
 | **Condition** | A leaf (`field` / `operator` / `value`) or a group (`AND` / `OR` / `NOT` over children). |
 | **Fact** | The object a rule set is evaluated against: a typed POCO (compiled path) or an `IDictionary<string, object>` (interpreted path). |
-| **Action** | v1: `setOutput` — writes a constant into the result's outputs. |
+| **Action** | `setOutput` — writes a `value` into the result's outputs; the value is a constant scalar or an expression computed from the fact. |
 
 ### Operators
 
@@ -136,6 +136,43 @@ registered on the builder **at compile time**.
 A null field value (or null anywhere along the path) makes every operator return
 `false`, except: `IsNull` → `true`, `NotEquals` (non-null comparand) → `true`,
 `NotIn` → `true`, and `Equals` with a `null` comparand → `true`.
+
+### Actions — constant and computed values
+
+A `setOutput` action writes a `value` into the result's outputs. That value is a **bare
+scalar** (a constant) or an **expression** computed from the fact at evaluation time — one
+key, and a constant is simply the simplest expression:
+
+```json
+"actions": [
+  { "type": "setOutput", "target": "Tier", "value": "gold" },
+  { "type": "setOutput", "target": "Discount",
+    "value": { "op": "multiply", "operands": [ { "field": "Order.Total" }, 0.1 ] } },
+  { "type": "setOutput", "target": "Message",
+    "value": { "op": "concat", "operands": [ "Thanks, ", { "field": "Customer.Name" }, "!" ] } }
+]
+```
+
+Values are **pure data** — a closed operator vocabulary, never embedded code — so a UI can
+generate them and a reviewer can diff them, exactly like conditions. A value is a bare scalar
+(a literal), `{ "field": "<dotted path>" }`, `{ "literal": <scalar> }`, or
+`{ "op": "<operator>", "operands": [ … ] }`:
+
+| Category | Operators |
+|---|---|
+| Arithmetic | `add`, `subtract`, `multiply`, `divide`, `modulo`, `negate` |
+| String | `concat` |
+| Null | `coalesce` (first non-null operand) |
+
+`add`/`multiply`/`concat`/`coalesce` take two or more operands; `subtract`/`divide`/`modulo`
+take exactly two (order significant); `negate` takes one. Evaluation is **total** — it never
+throws on data: any null operand propagates to a null result (except `coalesce`), a
+non-numeric operand to an arithmetic operator yields null, and division or modulo by zero
+yields null. Arithmetic runs in `decimal` unless a floating-point operand forces `double`, so
+`divide` is never silently integer-truncated. Computed outputs are compiled to delegates and
+cached per fact type just like conditions (constant-only rules keep their pre-materialized
+outputs and allocate nothing per firing); field references in expressions are checked against
+typed facts at compile time.
 
 ## Performance
 
@@ -188,11 +225,13 @@ Called out explicitly so expectations are clear:
 
 ## Roadmap
 
-- **v1 (current)** — core engine: compiled evaluation, interpreter fallback, tracing,
+- **v1** — core engine: compiled evaluation, interpreter fallback, tracing,
   schema + validator, benchmarks, net48 proof.
-- **v2** — Newtonsoft adapter, function catalog/discovery API, rule versioning,
-  rule-set-level short-circuit strategies, pluggable fact providers, hot-reload of
-  rule JSON, NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
+- **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
+  `concat`, `coalesce` over fact fields — shipped) are the backbone; next up a richer
+  action model (`appendOutput`/`addToOutput`) and decision-table authoring. Also on the
+  track: Newtonsoft adapter, function catalog/discovery API, and the
+  NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
   From v1 on, changes to the `layout` contract or the JSON Schema are treated as
   breaking changes.

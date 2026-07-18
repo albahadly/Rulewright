@@ -76,7 +76,7 @@ public static class RuleSetParser
                 action.TryGetProperty("type", out RuleJsonValue type);
                 action.TryGetProperty("target", out RuleJsonValue target);
                 action.TryGetProperty("value", out RuleJsonValue value);
-                actions.Add(new RuleAction(type.GetString(), target.GetString(), value.ToClrValue()));
+                actions.Add(new RuleAction(type.GetString(), target.GetString(), ParseValueExpression(value)));
             }
         }
 
@@ -87,6 +87,37 @@ public static class RuleSetParser
             description,
             priority,
             enabled);
+    }
+
+    private static ValueExpression ParseValueExpression(RuleJsonValue node)
+    {
+        if (node.Kind == RuleJsonValueKind.Object)
+        {
+            if (node.TryGetProperty("op", out RuleJsonValue op))
+            {
+                ExpressionOperatorMap.TryParse(op.GetString(), out ExpressionOperator @operator);
+                node.TryGetProperty("operands", out RuleJsonValue operands);
+                var parsedOperands = new List<ValueExpression>(operands.Items.Count);
+                foreach (RuleJsonValue operand in operands.Items)
+                {
+                    parsedOperands.Add(ParseValueExpression(operand));
+                }
+
+                return new OperatorExpression(@operator, parsedOperands);
+            }
+
+            if (node.TryGetProperty("field", out RuleJsonValue field))
+            {
+                return new FieldExpression(field.GetString());
+            }
+
+            // Validation guarantees an explicit-literal object here; { "literal": <scalar> }.
+            node.TryGetProperty("literal", out RuleJsonValue literal);
+            return new LiteralExpression(literal.ToClrValue());
+        }
+
+        // A bare scalar is a literal.
+        return new LiteralExpression(node.ToClrValue());
     }
 
     private static ConditionNode ParseCondition(RuleJsonValue condition)

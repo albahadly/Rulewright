@@ -1,0 +1,34 @@
+{
+  "ruleSet": {
+    "rules": [
+      {
+        "id": "loyalty-discount",
+        "priority": 10,
+        "condition": { "field": "Customer.LoyaltyYears", "operator": "GreaterThanOrEqual", "value": 2 },
+        "actions": [
+          {
+            "type": "setOutput",
+            "target": "Discount",
+            "value": { "op": "multiply", "operands": [ { "field": "Order.Total" }, 0.1 ] }
+          },
+          {
+            "type": "setOutput",
+            "target": "Message",
+            "value": { "op": "concat", "operands": [ "Thanks, ", { "field": "Customer.Name" }, "!" ] }
+          }
+        ]
+      }
+    ]
+  },
+  "fact": {
+    "Customer": { "Name": "Alice", "LoyaltyYears": 3 },
+    "Order": { "Total": 120.5 }
+  },
+  "expected": {
+    "firedRules": ["loyalty-discount"],
+    "outputs": {
+      "Discount": 12.05,
+      "Message": "Thanks, Alice!"
+    }
+  }
+}

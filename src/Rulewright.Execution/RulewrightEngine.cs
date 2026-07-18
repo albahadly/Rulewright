@@ -16,6 +16,9 @@ namespace Rulewright.Execution;
 /// </summary>
 public sealed class RulewrightEngine
 {
+    private static readonly IReadOnlyDictionary<string, object?> EmptyOutputs =
+        new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal));
+
     private readonly IRuleJsonReader? _jsonReader;
     private readonly IReadOnlyDictionary<string, IRuleFunction> _functions;
     private readonly ConcurrentDictionary<CompiledCacheKey, object> _compiledRules =
@@ -70,6 +73,7 @@ public sealed class RulewrightEngine
             ValidateFunctions(rule, rule.Condition);
 
             var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
+            bool hasComputedOutputs = false;
             foreach (RuleAction action in rule.Actions)
             {
                 if (!string.Equals(action.Type, RuleAction.SetOutputType, StringComparison.Ordinal))
@@ -77,14 +81,24 @@ public sealed class RulewrightEngine
                     throw new RuleCompilationException(rule.Id, $"unknown action type '{action.Type}'.");
                 }
 
-                outputs[action.Target] = action.Value;
+                if (action.Value is LiteralExpression literal)
+                {
+                    outputs[action.Target] = literal.Value;
+                }
+                else
+                {
+                    // Fact-dependent outputs are produced per evaluation (compiled per fact
+                    // type, or interpreted for dictionary facts) rather than pre-materialized.
+                    hasComputedOutputs = true;
+                }
             }
 
             Dictionary<ConditionNode, int> nodeIndex = ConditionNodeIndexer.BuildIndexMap(rule.Condition, out int nodeCount);
             entries.Add(new RuleEntry(
                 rule,
                 RuleHasher.ComputeHash(rule),
-                new ReadOnlyDictionary<string, object?>(outputs),
+                hasComputedOutputs ? EmptyOutputs : new ReadOnlyDictionary<string, object?>(outputs),
+                hasComputedOutputs,
                 nodeIndex,
                 nodeCount));
         }
@@ -155,7 +169,10 @@ public sealed class RulewrightEngine
                 options,
                 CompilationMode.Interpreted,
                 (entry, results) => RuleInterpreter.Evaluate(
-                    entry.Rule.Condition, boxedFact, _functions, results, entry.NodeIndex));
+                    entry.Rule.Condition, boxedFact, _functions, results, entry.NodeIndex),
+                entry => entry.HasComputedOutputs
+                    ? ActionExpressionInterpreter.Produce(entry.Rule.Actions, boxedFact)
+                    : entry.Outputs);
         }
 
         return EvaluateCore(
@@ -166,14 +183,18 @@ public sealed class RulewrightEngine
             {
                 CompiledRule<TFact> compiled = GetOrCompile<TFact>(entry);
                 return results is null ? compiled.Predicate(fact) : compiled.TracedPredicate(fact, results);
-            });
+            },
+            entry => entry.HasComputedOutputs
+                ? GetOrCompile<TFact>(entry).ProduceOutputs!(fact)
+                : entry.Outputs);
     }
 
     private RuleEvaluationResult EvaluateCore(
         LoadedRuleSet loaded,
         EvaluationOptions options,
         CompilationMode mode,
-        Func<RuleEntry, bool?[]?, bool> evaluateRule)
+        Func<RuleEntry, bool?[]?, bool> evaluateRule,
+        Func<RuleEntry, IReadOnlyDictionary<string, object?>> produceOutputs)
     {
         List<RuleTrace>? traceRules = options.EnableTrace
             ? new List<RuleTrace>(loaded.OrderedRules.Length)
@@ -207,8 +228,9 @@ public sealed class RulewrightEngine
 
             if (matched)
             {
-                fired.Add(new FiredRule(entry.Rule.Id, entry.Outputs));
-                foreach (KeyValuePair<string, object?> output in entry.Outputs)
+                IReadOnlyDictionary<string, object?> ruleOutputs = produceOutputs(entry);
+                fired.Add(new FiredRule(entry.Rule.Id, ruleOutputs));
+                foreach (KeyValuePair<string, object?> output in ruleOutputs)
                 {
                     outputs[output.Key] = output.Value;
                 }

@@ -76,6 +76,39 @@ Rulewright.Json.Newtonsoft ──┤ (adapters: JSON text → neutral DOM)
   constants — the compiled delegate calls `IRuleFunction.Evaluate` directly, no
   per-evaluation name resolution.
 
+## Action values (constant and computed)
+
+A `setOutput` action writes a single `value`. That value is always a `ValueExpression` —
+a closed, pure-data AST (`LiteralExpression`, `FieldExpression`, `OperatorExpression`)
+mirroring the condition tree, with no embedded code strings. A JSON scalar parses to a
+`LiteralExpression`; a JSON object to a field, operator, or explicit-literal node. There is
+one key, not two: a constant is simply the simplest expression.
+
+- **Compilation.** A rule with any non-literal action value gets a third compiled delegate
+  (`Func<TFact, IReadOnlyDictionary<string, object?>>`) alongside its two predicates,
+  cached under the same `(fact type, content hash)` key. Field reads compile to the same
+  null-guarded member access as conditions and are **type-checked against the fact at
+  compile time**; a missing member is a `RuleCompilationException`, not a runtime surprise.
+  Rules whose action values are *all* literals carry **no** output delegate — the engine
+  pre-materializes their outputs into one shared dictionary and allocates nothing per
+  firing.
+- **Shared semantics.** Both paths funnel operator evaluation through one place —
+  `ValueExpressionOps`, operating on boxed `object?`. The compiled path emits calls to
+  those methods (field access stays compiled/reflection-free); the interpreter
+  (`ActionExpressionInterpreter`) calls them directly for dictionary facts. Typed and
+  dictionary facts therefore produce identical outputs by construction, exercised by
+  parity tests. Actions run only for *fired* rules, so boxing here never touches the
+  condition hot path the performance claims are about.
+- **Total evaluation.** Operators never throw on data: any null operand propagates to a
+  null result (except `coalesce`, which returns the first non-null operand), a non-numeric
+  operand to an arithmetic operator yields null, and division or modulo by zero yields
+  null. Arithmetic runs in `decimal` unless a binary floating-point operand forces
+  `double`, so `divide` is never silently integer-truncated.
+- **Hashing.** The content hash covers action values (canonical
+  `{"target":…,"type":…,"value":…}`, the value rendered as a bare scalar for a literal or as
+  the node object otherwise). `5` and `{ "literal": 5 }` parse to the same
+  `LiteralExpression` and therefore hash identically.
+
 ## Null semantics
 
 Identical across compiled and interpreted paths, exercised by shared tests:

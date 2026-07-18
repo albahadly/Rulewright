@@ -367,7 +367,7 @@ public static class RuleSetValidator
         {
             errors.Add(new RuleValidationError(
                 action.TryGetProperty("type", out _) ? path + "/type" : path,
-                $"Action 'type' must be \"{Core.RuleAction.SetOutputType}\" (the only action type in v1)."));
+                $"Action 'type' must be \"{Core.RuleAction.SetOutputType}\"."));
         }
 
         if (!action.TryGetProperty("target", out RuleJsonValue target)
@@ -381,11 +381,101 @@ public static class RuleSetValidator
 
         if (!action.TryGetProperty("value", out RuleJsonValue value))
         {
-            errors.Add(new RuleValidationError(path, "Action 'value' is required (it may be null)."));
+            errors.Add(new RuleValidationError(path, "Action 'value' is required (a constant scalar or a value expression)."));
         }
-        else if (value.Kind is RuleJsonValueKind.Object or RuleJsonValueKind.Array)
+        else
         {
-            errors.Add(new RuleValidationError(path + "/value", "Action 'value' must be a scalar or null in v1."));
+            ValidateValueExpression(value, path + "/value", errors);
+        }
+    }
+
+    private static void ValidateValueExpression(RuleJsonValue node, string path, List<RuleValidationError> errors)
+    {
+        if (node.Kind == RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path, "An expression must be a scalar literal or an object; arrays are not valid."));
+            return;
+        }
+
+        if (node.Kind != RuleJsonValueKind.Object)
+        {
+            // A bare scalar (string, number, boolean, null) is a valid literal.
+            return;
+        }
+
+        bool hasOp = node.TryGetProperty("op", out RuleJsonValue op);
+        bool hasField = node.TryGetProperty("field", out RuleJsonValue field);
+        bool hasLiteral = node.TryGetProperty("literal", out RuleJsonValue literal);
+
+        int discriminators = (hasOp ? 1 : 0) + (hasField ? 1 : 0) + (hasLiteral ? 1 : 0);
+        if (discriminators == 0)
+        {
+            errors.Add(new RuleValidationError(path, "An expression object must have exactly one of 'op', 'field', or 'literal'."));
+            return;
+        }
+
+        if (discriminators > 1)
+        {
+            errors.Add(new RuleValidationError(path, "An expression object must have exactly one of 'op', 'field', or 'literal', not several."));
+            return;
+        }
+
+        if (hasField)
+        {
+            if (field.Kind != RuleJsonValueKind.String || field.GetString().Length == 0)
+            {
+                errors.Add(new RuleValidationError(path + "/field", "Expression 'field' must be a non-empty string."));
+            }
+
+            return;
+        }
+
+        if (hasLiteral)
+        {
+            if (literal.Kind is RuleJsonValueKind.Object or RuleJsonValueKind.Array)
+            {
+                errors.Add(new RuleValidationError(path + "/literal", "Expression 'literal' must be a scalar or null."));
+            }
+
+            return;
+        }
+
+        // Operator node.
+        if (op.Kind != RuleJsonValueKind.String || !ExpressionOperatorMap.TryParse(op.GetString(), out Core.ExpressionOperator parsedOperator))
+        {
+            errors.Add(new RuleValidationError(
+                path + "/op",
+                $"Unknown expression operator '{(op.Kind == RuleJsonValueKind.String ? op.GetString() : op.Kind.ToString())}'. "
+                + $"Expected one of: {string.Join(", ", ExpressionOperatorMap.JsonNames)}."));
+            return;
+        }
+
+        if (!node.TryGetProperty("operands", out RuleJsonValue operands) || operands.Kind != RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path, "An operator expression requires an 'operands' array."));
+            return;
+        }
+
+        int? requiredArity = ExpressionOperatorMap.RequiredArity(parsedOperator);
+        if (requiredArity is int exact)
+        {
+            if (operands.Items.Count != exact)
+            {
+                errors.Add(new RuleValidationError(
+                    path + "/operands",
+                    $"Operator '{op.GetString()}' requires exactly {exact} operand{(exact == 1 ? string.Empty : "s")}."));
+            }
+        }
+        else if (operands.Items.Count < 2)
+        {
+            errors.Add(new RuleValidationError(
+                path + "/operands",
+                $"Operator '{op.GetString()}' requires at least two operands."));
+        }
+
+        for (int i = 0; i < operands.Items.Count; i++)
+        {
+            ValidateValueExpression(operands.Items[i], path + "/operands/" + i.ToString(CultureInfo.InvariantCulture), errors);
         }
     }
 }

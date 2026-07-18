@@ -68,7 +68,7 @@ public static class RuleHasher
             builder.Append(",\"type\":");
             AppendString(builder, action.Type);
             builder.Append(",\"value\":");
-            AppendValue(builder, action.Value);
+            AppendExpression(builder, action.Value);
             builder.Append('}');
         }
 
@@ -76,6 +76,41 @@ public static class RuleHasher
         AppendCondition(builder, rule.Condition);
         builder.Append('}');
         return builder.ToString();
+    }
+
+    private static void AppendExpression(StringBuilder builder, ValueExpression expression)
+    {
+        switch (expression)
+        {
+            case LiteralExpression literal:
+                // A literal renders as its bare scalar, so `5` and `{ "literal": 5 }`
+                // (which parse to the same LiteralExpression) hash identically.
+                AppendValue(builder, literal.Value);
+                break;
+
+            case FieldExpression field:
+                builder.Append("{\"field\":");
+                AppendString(builder, field.Path);
+                builder.Append('}');
+                break;
+
+            case OperatorExpression op:
+                builder.Append("{\"op\":");
+                AppendString(builder, ExpressionOperatorMap.ToJsonName(op.Operator));
+                builder.Append(",\"operands\":[");
+                for (int i = 0; i < op.Operands.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        builder.Append(',');
+                    }
+
+                    AppendExpression(builder, op.Operands[i]);
+                }
+
+                builder.Append("]}");
+                break;
+        }
     }
 
     private static void AppendCondition(StringBuilder builder, ConditionNode node)

@@ -175,7 +175,7 @@
       "properties": {
         "type": {
           "enum": ["setOutput"],
-          "description": "Action kind. v1 supports 'setOutput': write a constant value into the evaluation result's outputs."
+          "description": "Action kind. 'setOutput' writes a value into the evaluation result's outputs."
         },
         "target": {
           "type": "string",
@@ -183,10 +183,74 @@
           "description": "Output key to set."
         },
         "value": {
-          "description": "Value written to the output key. Constant in v1."
+          "$ref": "#/$defs/expression",
+          "description": "The value written to the output key: a constant scalar, or a value expression computed from the fact at evaluation time."
         }
       },
       "required": ["type", "target", "value"]
+    },
+    "expression": {
+      "description": "An output value. Pure data — a closed operator vocabulary, never embedded code. A bare scalar is a constant; object nodes are { 'literal': <scalar> }, { 'field': '<dotted path>' }, or { 'op': '<operator>', 'operands': [ <expression>, ... ] }. Operand order is significant for subtract, divide, and modulo.",
+      "oneOf": [
+        { "type": ["string", "number", "boolean", "null"] },
+        { "$ref": "#/$defs/literalExpression" },
+        { "$ref": "#/$defs/fieldExpression" },
+        { "$ref": "#/$defs/operatorExpression" }
+      ]
+    },
+    "literalExpression": {
+      "type": "object",
+      "properties": {
+        "literal": {
+          "type": ["string", "number", "boolean", "null"],
+          "description": "An explicit constant, equivalent to writing the bare scalar."
+        }
+      },
+      "required": ["literal"],
+      "additionalProperties": false
+    },
+    "fieldExpression": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dotted path read from the fact, e.g. 'Order.Total'. A null anywhere along the path yields null."
+        }
+      },
+      "required": ["field"],
+      "additionalProperties": false
+    },
+    "operatorExpression": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": ["add", "subtract", "multiply", "divide", "modulo", "negate", "concat", "coalesce"],
+          "description": "Arithmetic (add/subtract/multiply/divide/modulo/negate), string concatenation (concat), or first-non-null selection (coalesce). Any null operand propagates to null (except coalesce); division or modulo by zero yields null."
+        },
+        "operands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expression" },
+          "minItems": 1,
+          "description": "Operand expressions. negate takes exactly 1; subtract/divide/modulo take exactly 2; add/multiply/concat/coalesce take 2 or more."
+        }
+      },
+      "required": ["op", "operands"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "negate" } }, "required": ["op"] },
+          "then": { "properties": { "operands": { "minItems": 1, "maxItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "op": { "enum": ["subtract", "divide", "modulo"] } }, "required": ["op"] },
+          "then": { "properties": { "operands": { "minItems": 2, "maxItems": 2 } } }
+        },
+        {
+          "if": { "properties": { "op": { "enum": ["add", "multiply", "concat", "coalesce"] } }, "required": ["op"] },
+          "then": { "properties": { "operands": { "minItems": 2 } } }
+        }
+      ]
     }
   }
 }

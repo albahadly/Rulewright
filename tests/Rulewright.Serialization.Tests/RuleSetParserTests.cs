@@ -117,4 +117,43 @@ public class RuleSetParserTests
         var leaf = Assert.IsType<ConditionLeaf>(set.Rules[0].Condition);
         Assert.Equal(10.5m, leaf.Value);
     }
+
+    [Fact]
+    public void ElseActions_Parse()
+    {
+        RuleSet set = Parse(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNotNull"" },
+          ""actions"": [ { ""type"": ""setOutput"", ""target"": ""T"", ""value"": ""yes"" } ],
+          ""else"": [ { ""type"": ""setOutput"", ""target"": ""T"", ""value"": ""no"" } ]
+        }");
+
+        Rule rule = Assert.Single(set.Rules);
+        RuleAction elseAction = Assert.Single(rule.ElseActions);
+        Assert.Equal(RuleAction.SetOutputType, elseAction.Type);
+        Assert.Equal("T", elseAction.Target);
+        Assert.Equal("no", Assert.IsType<LiteralExpression>(elseAction.Value).Value);
+    }
+
+    [Fact]
+    public void MissingElse_YieldsEmptyElseActions()
+    {
+        RuleSet set = Parse("{\"id\":\"r\",\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"}}");
+        Assert.Empty(set.Rules[0].ElseActions);
+    }
+
+    [Fact]
+    public void RemoveOutputAction_ParsesWithoutValue()
+    {
+        RuleSet set = Parse(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNotNull"" },
+          ""actions"": [ { ""type"": ""removeOutput"", ""target"": ""Discount"" } ]
+        }");
+
+        RuleAction action = Assert.Single(set.Rules[0].Actions);
+        Assert.Equal(RuleAction.RemoveOutputType, action.Type);
+        Assert.Equal("Discount", action.Target);
+        Assert.Null(Assert.IsType<LiteralExpression>(action.Value).Value);
+    }
 }

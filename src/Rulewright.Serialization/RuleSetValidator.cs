@@ -133,20 +133,8 @@ public static class RuleSetValidator
             ValidateCondition(condition, path + "/condition", errors);
         }
 
-        if (rule.TryGetProperty("actions", out RuleJsonValue actions))
-        {
-            if (actions.Kind != RuleJsonValueKind.Array)
-            {
-                errors.Add(new RuleValidationError(path + "/actions", "'actions' must be an array."));
-            }
-            else
-            {
-                for (int i = 0; i < actions.Items.Count; i++)
-                {
-                    ValidateAction(actions.Items[i], path + "/actions/" + i.ToString(CultureInfo.InvariantCulture), errors);
-                }
-            }
-        }
+        ValidateActionArray(rule, "actions", path, errors);
+        ValidateActionArray(rule, "else", path, errors);
 
         if (rule.TryGetProperty("layout", out RuleJsonValue layout) && layout.Kind != RuleJsonValueKind.Object)
         {
@@ -374,6 +362,25 @@ public static class RuleSetValidator
         }
     }
 
+    private static void ValidateActionArray(RuleJsonValue rule, string property, string path, List<RuleValidationError> errors)
+    {
+        if (!rule.TryGetProperty(property, out RuleJsonValue actions))
+        {
+            return;
+        }
+
+        if (actions.Kind != RuleJsonValueKind.Array)
+        {
+            errors.Add(new RuleValidationError(path + "/" + property, $"'{property}' must be an array."));
+            return;
+        }
+
+        for (int i = 0; i < actions.Items.Count; i++)
+        {
+            ValidateAction(actions.Items[i], path + "/" + property + "/" + i.ToString(CultureInfo.InvariantCulture), errors);
+        }
+    }
+
     private static void ValidateAction(RuleJsonValue action, string path, List<RuleValidationError> errors)
     {
         if (action.Kind != RuleJsonValueKind.Object)
@@ -383,16 +390,19 @@ public static class RuleSetValidator
         }
 
         bool hasType = action.TryGetProperty("type", out RuleJsonValue type);
+        bool isRemove = hasType && type.Kind == RuleJsonValueKind.String && type.GetString() == Core.RuleAction.RemoveOutputType;
         if (!hasType
             || type.Kind != RuleJsonValueKind.String
             || (type.GetString() != Core.RuleAction.SetOutputType
                 && type.GetString() != Core.RuleAction.AddToOutputType
-                && type.GetString() != Core.RuleAction.AppendToOutputType))
+                && type.GetString() != Core.RuleAction.AppendToOutputType
+                && type.GetString() != Core.RuleAction.RemoveOutputType))
         {
             errors.Add(new RuleValidationError(
                 hasType ? path + "/type" : path,
                 $"Action 'type' must be \"{Core.RuleAction.SetOutputType}\", "
-                + $"\"{Core.RuleAction.AddToOutputType}\", or \"{Core.RuleAction.AppendToOutputType}\"."));
+                + $"\"{Core.RuleAction.AddToOutputType}\", \"{Core.RuleAction.AppendToOutputType}\", "
+                + $"or \"{Core.RuleAction.RemoveOutputType}\"."));
         }
 
         if (!action.TryGetProperty("target", out RuleJsonValue target)
@@ -404,7 +414,16 @@ public static class RuleSetValidator
                 "Action 'target' must be a non-empty string."));
         }
 
-        if (!action.TryGetProperty("value", out RuleJsonValue value))
+        bool hasValue = action.TryGetProperty("value", out RuleJsonValue value);
+        if (isRemove)
+        {
+            // removeOutput deletes a key; it takes no value.
+            if (hasValue)
+            {
+                errors.Add(new RuleValidationError(path + "/value", $"'value' is not allowed for action type \"{Core.RuleAction.RemoveOutputType}\"."));
+            }
+        }
+        else if (!hasValue)
         {
             errors.Add(new RuleValidationError(path, "Action 'value' is required (a constant scalar or a value expression)."));
         }

@@ -35,6 +35,8 @@ internal sealed class RuleEntry
         string hash,
         IReadOnlyDictionary<string, object?> outputs,
         bool hasComplexOutputs,
+        IReadOnlyDictionary<string, object?> elseOutputs,
+        bool hasComplexElseOutputs,
         Dictionary<ConditionNode, int> nodeIndex,
         int nodeCount)
     {
@@ -42,6 +44,8 @@ internal sealed class RuleEntry
         Hash = hash;
         Outputs = outputs;
         HasComplexOutputs = hasComplexOutputs;
+        ElseOutputs = elseOutputs;
+        HasComplexElseOutputs = hasComplexElseOutputs;
         NodeIndex = nodeIndex;
         NodeCount = nodeCount;
     }
@@ -52,19 +56,29 @@ internal sealed class RuleEntry
     internal string Hash { get; }
 
     /// <summary>
-    /// The outputs this rule produces when it fires, shared and reused across evaluations.
-    /// Populated only when <see cref="HasComplexOutputs"/> is false — i.e. every action is a
-    /// constant <c>setOutput</c>; otherwise outputs are applied to the running result per
-    /// evaluation instead.
+    /// The outputs this rule produces when its condition matches, shared and reused across
+    /// evaluations. Populated only when <see cref="HasComplexOutputs"/> is false — i.e. every
+    /// action is a constant <c>setOutput</c>; otherwise outputs are applied to the running
+    /// result per evaluation instead.
     /// </summary>
     internal IReadOnlyDictionary<string, object?> Outputs { get; }
 
     /// <summary>
-    /// Whether any action is not a constant <c>setOutput</c> (a computed value, or an
-    /// accumulating <c>addToOutput</c>/<c>appendToOutput</c>), so its output must be applied
-    /// to the running result per evaluation rather than reused from <see cref="Outputs"/>.
+    /// Whether any action is not a constant <c>setOutput</c> (a computed value, an accumulating
+    /// <c>addToOutput</c>/<c>appendToOutput</c>, or a <c>removeOutput</c>), so its output must
+    /// be applied to the running result per evaluation rather than reused from
+    /// <see cref="Outputs"/>.
     /// </summary>
     internal bool HasComplexOutputs { get; }
+
+    /// <summary>The <see cref="Outputs"/> equivalent for the rule's <c>else</c> branch.</summary>
+    internal IReadOnlyDictionary<string, object?> ElseOutputs { get; }
+
+    /// <summary>The <see cref="HasComplexOutputs"/> equivalent for the rule's <c>else</c> branch.</summary>
+    internal bool HasComplexElseOutputs { get; }
+
+    /// <summary>Whether the rule has any <c>else</c> actions to run when its condition fails.</summary>
+    internal bool HasElse => Rule.ElseActions.Count > 0;
 
     /// <summary>Pre-order index of every condition node, shared by tracing across execution modes.</summary>
     internal Dictionary<ConditionNode, int> NodeIndex { get; }

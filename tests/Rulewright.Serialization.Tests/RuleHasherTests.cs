@@ -77,4 +77,54 @@ public class RuleHasherTests
             + "\"condition\":{\"field\":\"A\",\"operator\":\"Equals\",\"value\":\"x\"}}",
             RuleHasher.GetCanonicalForm(rule));
     }
+
+    [Fact]
+    public void Hash_ChangesWhenElseBranchAdded()
+    {
+        Rule without = ParseRule(
+            "{\"id\":\"r\",\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"},\"actions\":[{\"type\":\"setOutput\",\"target\":\"T\",\"value\":1}]}");
+        Rule with = ParseRule(
+            "{\"id\":\"r\",\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"},\"actions\":[{\"type\":\"setOutput\",\"target\":\"T\",\"value\":1}],"
+            + "\"else\":[{\"type\":\"setOutput\",\"target\":\"T\",\"value\":2}]}");
+        Assert.NotEqual(RuleHasher.ComputeHash(without), RuleHasher.ComputeHash(with));
+    }
+
+    [Fact]
+    public void CanonicalForm_IncludesElseBranch()
+    {
+        Rule rule = ParseRule(
+            "{\"id\":\"r\",\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"},\"actions\":[{\"type\":\"setOutput\",\"target\":\"T\",\"value\":1}],"
+            + "\"else\":[{\"type\":\"setOutput\",\"target\":\"T\",\"value\":2}]}");
+        Assert.Equal(
+            "{\"actions\":[{\"target\":\"T\",\"type\":\"setOutput\",\"value\":1}],"
+            + "\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"},"
+            + "\"else\":[{\"target\":\"T\",\"type\":\"setOutput\",\"value\":2}]}",
+            RuleHasher.GetCanonicalForm(rule));
+    }
+
+    [Fact]
+    public void CanonicalForm_RemoveOutput_OmitsValue()
+    {
+        Rule rule = ParseRule(
+            "{\"id\":\"r\",\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"},\"actions\":[{\"type\":\"removeOutput\",\"target\":\"T\"}]}");
+        Assert.Equal(
+            "{\"actions\":[{\"target\":\"T\",\"type\":\"removeOutput\"}],"
+            + "\"condition\":{\"field\":\"A\",\"operator\":\"IsNull\"}}",
+            RuleHasher.GetCanonicalForm(rule));
+    }
+
+    [Fact]
+    public void Hash_RemoveOutput_IsValueIndependent()
+    {
+        // removeOutput ignores its value, so a value built by the factory versus none hash alike.
+        var viaFactory = new Rule(
+            "r",
+            new ConditionLeaf("A", ConditionOperator.IsNull, null),
+            new[] { RuleAction.RemoveOutput("T") });
+        var withStrayValue = new Rule(
+            "r",
+            new ConditionLeaf("A", ConditionOperator.IsNull, null),
+            new[] { new RuleAction(RuleAction.RemoveOutputType, "T", "ignored") });
+        Assert.Equal(RuleHasher.ComputeHash(viaFactory), RuleHasher.ComputeHash(withStrayValue));
+    }
 }

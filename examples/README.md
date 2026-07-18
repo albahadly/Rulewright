@@ -62,9 +62,10 @@ or must exist on the type (typed facts) — see `05-null-and-coalesce.json`.
 | [10-decision-table-first.json](10-decision-table-first.json) | A decision table with `hitPolicy: "first"` — only the first matching row applies. |
 | [11-decision-table-collect-scoring.json](11-decision-table-collect-scoring.json) | A decision table with `hitPolicy: "collect"` feeding accumulator outputs. |
 | [12-custom-function.json](12-custom-function.json) | The `custom` operator, delegating a leaf to a function registered on the builder. |
-| [13-if-else-append.json](13-if-else-append.json) | If / else with plain rules: a rule and its negation (`NOT`) append different values to the same output. |
+| [13-if-else-append.json](13-if-else-append.json) | The pre-`else` way to write if / else: a rule and its negation (`NOT`) append different values (compare 16). |
 | [14-if-else-decision-table.json](14-if-else-decision-table.json) | The same if / else as 13, expressed DRY as a `first` decision table (the condition is written once). |
 | [15-condition-side-expression.json](15-condition-side-expression.json) | A condition whose left-hand side is a computed `expression` (e.g. `Order.Total / Order.ItemCount > 25`). |
+| [16-else-and-remove.json](16-else-and-remove.json) | First-class `else` actions (one rule, both branches) and `removeOutput` to retract an earlier rule's output. |
 
 ## Key ideas the examples lean on
 
@@ -72,7 +73,10 @@ or must exist on the type (typed facts) — see `05-null-and-coalesce.json`.
   object — `{ "field": "…" }`, `{ "op": "…", "operands": [ … ] }`, or `{ "literal": … }`.
   A constant is just the simplest expression.
 - **Action types.** `setOutput` replaces, `addToOutput` sums, `appendToOutput` collects into
-  a list. The accumulators combine across every rule that fires, in priority order.
+  a list, `removeOutput` deletes. The accumulators combine across every rule that fires, in
+  priority order; `removeOutput` can undo an earlier rule's write.
+- **Else actions.** A rule may carry an `else` array that runs when the condition is false —
+  an if/else in one rule. Each fired rule reports which `Branch` (`Then`/`Else`) ran.
 - **Total evaluation.** Operators never throw on data: nulls propagate (except `coalesce`),
   non-numeric arithmetic yields null, and divide/modulo by zero yields null.
 - **Pure data.** There is no embedded code — a closed, validatable vocabulary that a UI can

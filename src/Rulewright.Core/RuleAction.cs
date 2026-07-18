@@ -3,13 +3,15 @@ using System;
 namespace Rulewright.Core;
 
 /// <summary>
-/// An action applied when a rule's condition passes. Every action writes a
+/// An action applied when a rule fires — from its <c>actions</c> when the condition passes,
+/// or its <c>else</c> actions when it does not. Most actions write a
 /// <see cref="ValueExpression"/> into the evaluation result's outputs under
 /// <see cref="Target"/>: a constant is simply a <see cref="LiteralExpression"/>, and a value
 /// derived from the fact is a <see cref="FieldExpression"/> or <see cref="OperatorExpression"/>.
 /// The <see cref="Type"/> decides how the value combines with what fired rules have already
-/// written: <c>setOutput</c> replaces, <c>addToOutput</c> accumulates numerically, and
-/// <c>appendToOutput</c> collects into a list.
+/// written: <c>setOutput</c> replaces, <c>addToOutput</c> accumulates numerically,
+/// <c>appendToOutput</c> collects into a list, and <c>removeOutput</c> deletes the key
+/// (ignoring any value).
 /// </summary>
 public sealed class RuleAction
 {
@@ -27,6 +29,12 @@ public sealed class RuleAction
     /// a null value contributes nothing.
     /// </summary>
     public const string AppendToOutputType = "appendToOutput";
+
+    /// <summary>
+    /// Removes <see cref="Target"/> from the running outputs, undoing whatever an
+    /// earlier-fired rule wrote there. Carries no meaningful value.
+    /// </summary>
+    public const string RemoveOutputType = "removeOutput";
 
     /// <summary>
     /// Creates a rule action from a value expression.
@@ -66,6 +74,15 @@ public sealed class RuleAction
     {
     }
 
+    /// <summary>
+    /// Creates a <c>removeOutput</c> action that deletes <paramref name="target"/> from the
+    /// running outputs. The action carries no value.
+    /// </summary>
+    /// <param name="target">The output key to remove.</param>
+    /// <exception cref="ArgumentException"><paramref name="target"/> is null or empty.</exception>
+    public static RuleAction RemoveOutput(string target)
+        => new RuleAction(RemoveOutputType, target, (object?)null);
+
     /// <summary>The action type identifier (<c>setOutput</c>).</summary>
     public string Type { get; }
 
@@ -74,7 +91,8 @@ public sealed class RuleAction
 
     /// <summary>
     /// The value expression evaluated against the fact to produce the output. A constant
-    /// action carries a <see cref="LiteralExpression"/>.
+    /// action carries a <see cref="LiteralExpression"/>; a <c>removeOutput</c> action carries
+    /// a null literal that is never read.
     /// </summary>
     public ValueExpression Value { get; }
 }

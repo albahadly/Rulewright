@@ -128,6 +128,11 @@
           "items": { "$ref": "#/$defs/action" },
           "description": "Actions applied when the condition evaluates to true."
         },
+        "else": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" },
+          "description": "Actions applied when the condition evaluates to false — the rule's 'else' branch. Same shape as 'actions'."
+        },
         "layout": {
           "type": "object",
           "description": "Presentation/layout metadata for visual rule builders (node positions, canvas ids). The engine never reads this key, and it is excluded from the rule content hash used for compilation caching."
@@ -255,20 +260,27 @@
       "type": "object",
       "properties": {
         "type": {
-          "enum": ["setOutput", "addToOutput", "appendToOutput"],
-          "description": "How the value combines into the result's outputs at 'target': 'setOutput' replaces, 'addToOutput' adds numerically (a running total across fired rules), 'appendToOutput' appends to a list (collected across fired rules). For the accumulators, a null value contributes nothing."
+          "enum": ["setOutput", "addToOutput", "appendToOutput", "removeOutput"],
+          "description": "How the action changes the result's outputs at 'target': 'setOutput' replaces, 'addToOutput' adds numerically (a running total across fired rules), 'appendToOutput' appends to a list (collected across fired rules), 'removeOutput' deletes the key. For the accumulators, a null value contributes nothing."
         },
         "target": {
           "type": "string",
           "minLength": 1,
-          "description": "Output key the action writes."
+          "description": "Output key the action writes (or, for 'removeOutput', deletes)."
         },
         "value": {
           "$ref": "#/$defs/expression",
-          "description": "The value written to the output key: a constant scalar, or a value expression computed from the fact at evaluation time."
+          "description": "The value written to the output key: a constant scalar, or a value expression computed from the fact at evaluation time. Required for every type except 'removeOutput', which takes no value."
         }
       },
-      "required": ["type", "target", "value"]
+      "required": ["type", "target"],
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "removeOutput" } }, "required": ["type"] },
+          "then": { "not": { "required": ["value"] } },
+          "else": { "required": ["value"] }
+        }
+      ]
     },
     "expression": {
       "description": "An output value. Pure data — a closed operator vocabulary, never embedded code. A bare scalar is a constant; object nodes are { 'literal': <scalar> }, { 'field': '<dotted path>' }, or { 'op': '<operator>', 'operands': [ <expression>, ... ] }. Operand order is significant for subtract, divide, and modulo.",

@@ -82,6 +82,50 @@ public class DomainModelTests
     }
 
     [Fact]
+    public void RuleAction_RemoveOutput_HasTypeAndNullValueLiteral()
+    {
+        RuleAction action = RuleAction.RemoveOutput("Discount");
+        Assert.Equal(RuleAction.RemoveOutputType, action.Type);
+        Assert.Equal("Discount", action.Target);
+        Assert.Null(Assert.IsType<LiteralExpression>(action.Value).Value);
+    }
+
+    [Fact]
+    public void Rule_ElseActions_DefaultEmpty()
+    {
+        Assert.Empty(new Rule("r", Leaf()).ElseActions);
+    }
+
+    [Fact]
+    public void Rule_ElseActions_AreExposed()
+    {
+        var rule = new Rule("r", Leaf(), elseActions: new[] { RuleAction.RemoveOutput("T") });
+        RuleAction elseAction = Assert.Single(rule.ElseActions);
+        Assert.Equal(RuleAction.RemoveOutputType, elseAction.Type);
+    }
+
+    [Fact]
+    public void Rule_ElseActions_WithNull_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new Rule("r", Leaf(), elseActions: new RuleAction[] { null! }));
+    }
+
+    [Fact]
+    public void FiredRule_Branch_DefaultsToThen()
+    {
+        var fired = new FiredRule("r", new Dictionary<string, object?>());
+        Assert.Equal(RuleBranch.Then, fired.Branch);
+    }
+
+    [Fact]
+    public void FiredRule_Branch_IsExposed()
+    {
+        var fired = new FiredRule("r", new Dictionary<string, object?>(), RuleBranch.Else);
+        Assert.Equal(RuleBranch.Else, fired.Branch);
+    }
+
+    [Fact]
     public void EvaluationOptions_Default_TracingOffEvaluateAll()
     {
         Assert.False(EvaluationOptions.Default.EnableTrace);

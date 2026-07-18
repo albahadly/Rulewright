@@ -8,7 +8,7 @@ namespace Rulewright.Execution;
 /// according to the action type. Shared by the compiled and interpreted paths so
 /// accumulation semantics are identical regardless of fact shape. Actions apply in priority
 /// order across fired rules, so <c>addToOutput</c> and <c>appendToOutput</c> accumulate over
-/// the whole evaluation.
+/// the whole evaluation and <c>removeOutput</c> can undo what an earlier rule wrote.
 /// </summary>
 internal static class OutputApplier
 {
@@ -61,6 +61,13 @@ internal static class OutputApplier
                 }
 
                 break;
+
+            case RuleAction.RemoveOutputType:
+                // Delete the key (if present) from both the running outputs and this rule's own
+                // snapshot, so the rule's FiredRule.Outputs never reports a value it just removed.
+                running.Remove(target);
+                snapshot.Remove(target);
+                return;
 
             default: // setOutput
                 running[target] = value;

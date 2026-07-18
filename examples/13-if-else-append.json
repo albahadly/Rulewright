@@ -1,6 +1,6 @@
 {
   "name": "Free-shipping messaging (if / else)",
-  "description": "A rule fires actions only when its condition matches, so an 'else' is a second rule with the negated condition. Here one branch appends a positive message and the other appends a different one; the two conditions are mutually exclusive, so exactly one appends to Messages. Note the condition is written twice (once plain, once inside NOT) and must be kept in sync — see 14-if-else-decision-table.json for the DRY equivalent.",
+  "description": "The pre-'else' way to write if / else: since a rule fires actions only when its condition matches, the 'else' is a second rule with the negated condition. Here one branch appends a positive message and the other a different one; the two conditions are mutually exclusive, so exactly one appends to Messages. The condition is written twice (once plain, once inside NOT) and must be kept in sync — see 16-else-and-remove.json for the same thing as one rule with a first-class 'else', or 14-if-else-decision-table.json for the decision-table form.",
   "rules": [
     {
       "id": "qualifies",

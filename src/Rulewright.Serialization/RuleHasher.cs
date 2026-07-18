@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -54,28 +55,50 @@ public static class RuleHasher
         }
 
         var builder = new StringBuilder(256);
-        builder.Append("{\"actions\":[");
-        for (int i = 0; i < rule.Actions.Count; i++)
+        builder.Append("{\"actions\":");
+        AppendActions(builder, rule.Actions);
+        builder.Append(",\"condition\":");
+        AppendCondition(builder, rule.Condition);
+
+        // Else actions change the compiled delegate, so they are part of the content hash.
+        // Omitted when absent, so rules without an else keep their existing hash.
+        if (rule.ElseActions.Count > 0)
+        {
+            builder.Append(",\"else\":");
+            AppendActions(builder, rule.ElseActions);
+        }
+
+        builder.Append('}');
+        return builder.ToString();
+    }
+
+    private static void AppendActions(StringBuilder builder, IReadOnlyList<RuleAction> actions)
+    {
+        builder.Append('[');
+        for (int i = 0; i < actions.Count; i++)
         {
             if (i > 0)
             {
                 builder.Append(',');
             }
 
-            RuleAction action = rule.Actions[i];
+            RuleAction action = actions[i];
             builder.Append("{\"target\":");
             AppendString(builder, action.Target);
             builder.Append(",\"type\":");
             AppendString(builder, action.Type);
-            builder.Append(",\"value\":");
-            AppendExpression(builder, action.Value);
+
+            // removeOutput ignores its value, so the value plays no part in its identity.
+            if (action.Type != RuleAction.RemoveOutputType)
+            {
+                builder.Append(",\"value\":");
+                AppendExpression(builder, action.Value);
+            }
+
             builder.Append('}');
         }
 
-        builder.Append("],\"condition\":");
-        AppendCondition(builder, rule.Condition);
-        builder.Append('}');
-        return builder.ToString();
+        builder.Append(']');
     }
 
     private static void AppendExpression(StringBuilder builder, ValueExpression expression)

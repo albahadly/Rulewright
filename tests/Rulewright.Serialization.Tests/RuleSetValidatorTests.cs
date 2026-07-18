@@ -170,4 +170,59 @@ public class RuleSetValidatorTests
         RuleValidationError error = Assert.Single(result.Errors);
         Assert.Equal("/rules/1/condition/operator", error.Path);
     }
+
+    [Fact]
+    public void RemoveOutput_WithoutValue_IsValid()
+    {
+        RuleSetValidationResult result = Validate(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNull"" },
+          ""actions"": [ { ""type"": ""removeOutput"", ""target"": ""T"" } ]
+        }");
+        Assert.True(result.IsValid, string.Join("; ", result.Errors.Select(e => e.ToString())));
+    }
+
+    [Fact]
+    public void RemoveOutput_WithValue_IsReported()
+    {
+        RuleSetValidationResult result = Validate(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNull"" },
+          ""actions"": [ { ""type"": ""removeOutput"", ""target"": ""T"", ""value"": 1 } ]
+        }");
+        Assert.Contains(result.Errors, e => e.Path == "/actions/0/value" && e.Message.Contains("not allowed"));
+    }
+
+    [Fact]
+    public void NonRemoveActionWithoutValue_IsReported()
+    {
+        RuleSetValidationResult result = Validate(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNull"" },
+          ""actions"": [ { ""type"": ""setOutput"", ""target"": ""T"" } ]
+        }");
+        Assert.Contains(result.Errors, e => e.Path == "/actions/0" && e.Message.Contains("'value' is required"));
+    }
+
+    [Fact]
+    public void ElseActions_AreValidatedWithElsePointer()
+    {
+        RuleSetValidationResult result = Validate(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNull"" },
+          ""else"": [ { ""type"": ""sendEmail"", ""target"": ""T"", ""value"": 1 } ]
+        }");
+        Assert.Contains(result.Errors, e => e.Path == "/else/0/type");
+    }
+
+    [Fact]
+    public void Else_MustBeArray()
+    {
+        RuleSetValidationResult result = Validate(@"{
+          ""id"": ""r"",
+          ""condition"": { ""field"": ""A"", ""operator"": ""IsNull"" },
+          ""else"": { ""type"": ""setOutput"", ""target"": ""T"", ""value"": 1 }
+        }");
+        Assert.Contains(result.Errors, e => e.Path == "/else" && e.Message.Contains("must be an array"));
+    }
 }

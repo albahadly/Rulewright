@@ -73,18 +73,13 @@ public static class RuleSetParser
         bool enabled = !rule.TryGetProperty("enabled", out RuleJsonValue enabledValue)
             || enabledValue.Kind == RuleJsonValueKind.True;
 
-        List<RuleAction>? actions = null;
-        if (rule.TryGetProperty("actions", out RuleJsonValue actionsValue))
-        {
-            actions = new List<RuleAction>(actionsValue.Items.Count);
-            foreach (RuleJsonValue action in actionsValue.Items)
-            {
-                action.TryGetProperty("type", out RuleJsonValue type);
-                action.TryGetProperty("target", out RuleJsonValue target);
-                action.TryGetProperty("value", out RuleJsonValue value);
-                actions.Add(new RuleAction(type.GetString(), target.GetString(), ParseValueExpression(value)));
-            }
-        }
+        List<RuleAction>? actions = rule.TryGetProperty("actions", out RuleJsonValue actionsValue)
+            ? ParseActions(actionsValue)
+            : null;
+
+        List<RuleAction>? elseActions = rule.TryGetProperty("else", out RuleJsonValue elseValue)
+            ? ParseActions(elseValue)
+            : null;
 
         return new Rule(
             id.GetString(),
@@ -92,7 +87,30 @@ public static class RuleSetParser
             actions,
             description,
             priority,
-            enabled);
+            enabled,
+            elseActions);
+    }
+
+    private static List<RuleAction> ParseActions(RuleJsonValue actionsValue)
+    {
+        var actions = new List<RuleAction>(actionsValue.Items.Count);
+        foreach (RuleJsonValue action in actionsValue.Items)
+        {
+            action.TryGetProperty("type", out RuleJsonValue type);
+            action.TryGetProperty("target", out RuleJsonValue target);
+
+            // removeOutput deletes a key and carries no value.
+            if (type.GetString() == RuleAction.RemoveOutputType)
+            {
+                actions.Add(RuleAction.RemoveOutput(target.GetString()));
+                continue;
+            }
+
+            action.TryGetProperty("value", out RuleJsonValue value);
+            actions.Add(new RuleAction(type.GetString(), target.GetString(), ParseValueExpression(value)));
+        }
+
+        return actions;
     }
 
     /// <summary>

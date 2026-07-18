@@ -72,40 +72,58 @@ public sealed class RulewrightEngine
         {
             ValidateFunctions(rule, rule.Condition);
 
-            var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
-            bool hasComplexOutputs = false;
-            foreach (RuleAction action in rule.Actions)
-            {
-                if (!string.Equals(action.Type, RuleAction.SetOutputType, StringComparison.Ordinal)
-                    && !string.Equals(action.Type, RuleAction.AddToOutputType, StringComparison.Ordinal)
-                    && !string.Equals(action.Type, RuleAction.AppendToOutputType, StringComparison.Ordinal))
-                {
-                    throw new RuleCompilationException(rule.Id, $"unknown action type '{action.Type}'.");
-                }
-
-                if (OutputApplier.IsLiteralSet(action))
-                {
-                    outputs[action.Target] = ((LiteralExpression)action.Value).Value;
-                }
-                else
-                {
-                    // Computed or accumulating actions apply to the running result per
-                    // evaluation rather than being pre-materialized here.
-                    hasComplexOutputs = true;
-                }
-            }
+            (IReadOnlyDictionary<string, object?> Outputs, bool HasComplex) thenPlan = BuildOutputPlan(rule, rule.Actions);
+            (IReadOnlyDictionary<string, object?> Outputs, bool HasComplex) elsePlan = BuildOutputPlan(rule, rule.ElseActions);
 
             Dictionary<ConditionNode, int> nodeIndex = ConditionNodeIndexer.BuildIndexMap(rule.Condition, out int nodeCount);
             entries.Add(new RuleEntry(
                 rule,
                 RuleHasher.ComputeHash(rule),
-                hasComplexOutputs ? EmptyOutputs : new ReadOnlyDictionary<string, object?>(outputs),
-                hasComplexOutputs,
+                thenPlan.Outputs,
+                thenPlan.HasComplex,
+                elsePlan.Outputs,
+                elsePlan.HasComplex,
                 nodeIndex,
                 nodeCount));
         }
 
         return new LoadedRuleSet(ruleSet, entries.ToArray());
+    }
+
+    /// <summary>
+    /// Validates a branch's action types and pre-materializes the outputs of a branch made
+    /// purely of constant <c>setOutput</c> actions (so it can reuse one shared dictionary
+    /// across evaluations). A branch with any computed, accumulating, or <c>removeOutput</c>
+    /// action is marked complex and applied per evaluation instead.
+    /// </summary>
+    private static (IReadOnlyDictionary<string, object?> Outputs, bool HasComplex) BuildOutputPlan(
+        Rule rule, IReadOnlyList<RuleAction> actions)
+    {
+        var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        bool hasComplex = false;
+        foreach (RuleAction action in actions)
+        {
+            if (!string.Equals(action.Type, RuleAction.SetOutputType, StringComparison.Ordinal)
+                && !string.Equals(action.Type, RuleAction.AddToOutputType, StringComparison.Ordinal)
+                && !string.Equals(action.Type, RuleAction.AppendToOutputType, StringComparison.Ordinal)
+                && !string.Equals(action.Type, RuleAction.RemoveOutputType, StringComparison.Ordinal))
+            {
+                throw new RuleCompilationException(rule.Id, $"unknown action type '{action.Type}'.");
+            }
+
+            if (OutputApplier.IsLiteralSet(action))
+            {
+                outputs[action.Target] = ((LiteralExpression)action.Value).Value;
+            }
+            else
+            {
+                // Computed, accumulating, or removeOutput actions apply to the running result
+                // per evaluation rather than being pre-materialized here.
+                hasComplex = true;
+            }
+        }
+
+        return (hasComplex ? EmptyOutputs : new ReadOnlyDictionary<string, object?>(outputs), hasComplex);
     }
 
     /// <summary>
@@ -172,7 +190,7 @@ public sealed class RulewrightEngine
                 CompilationMode.Interpreted,
                 (entry, results) => RuleInterpreter.Evaluate(
                     entry.Rule.Condition, boxedFact, _functions, results, entry.NodeIndex),
-                (entry, running) => ApplyInterpretedOutputs(entry, boxedFact, running));
+                (entry, isElse, running) => ApplyInterpretedOutputs(entry, isElse, boxedFact, running));
         }
 
         return EvaluateCore(
@@ -184,30 +202,34 @@ public sealed class RulewrightEngine
                 CompiledRule<TFact> compiled = GetOrCompile<TFact>(entry);
                 return results is null ? compiled.Predicate(fact) : compiled.TracedPredicate(fact, results);
             },
-            (entry, running) => ApplyCompiledOutputs<TFact>(entry, fact, running));
+            (entry, isElse, running) => ApplyCompiledOutputs<TFact>(entry, isElse, fact, running));
     }
 
     /// <summary>
-    /// Applies a fired rule's outputs to the running result and returns the rule's own view
-    /// of what it wrote. Rules made purely of constant <c>setOutput</c> actions overwrite
-    /// their shared, pre-materialized outputs; other rules evaluate each action's value and
-    /// apply it (set/add/append) in order via <see cref="OutputApplier"/>.
+    /// Applies a fired rule branch's outputs to the running result and returns the rule's own
+    /// view of what it wrote. A branch made purely of constant <c>setOutput</c> actions
+    /// overwrites its shared, pre-materialized outputs; otherwise each action's value is
+    /// evaluated and applied (set/add/append/remove) in order via <see cref="OutputApplier"/>.
     /// </summary>
     private static IReadOnlyDictionary<string, object?> ApplyInterpretedOutputs(
-        RuleEntry entry, object fact, IDictionary<string, object?> running)
+        RuleEntry entry, bool isElse, object fact, IDictionary<string, object?> running)
     {
-        if (!entry.HasComplexOutputs)
+        IReadOnlyList<RuleAction> actions = isElse ? entry.Rule.ElseActions : entry.Rule.Actions;
+        bool hasComplex = isElse ? entry.HasComplexElseOutputs : entry.HasComplexOutputs;
+        IReadOnlyDictionary<string, object?> prematerialized = isElse ? entry.ElseOutputs : entry.Outputs;
+
+        if (!hasComplex)
         {
-            foreach (KeyValuePair<string, object?> output in entry.Outputs)
+            foreach (KeyValuePair<string, object?> output in prematerialized)
             {
                 running[output.Key] = output.Value;
             }
 
-            return entry.Outputs;
+            return prematerialized;
         }
 
         var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (RuleAction action in entry.Rule.Actions)
+        foreach (RuleAction action in actions)
         {
             object? value = ActionExpressionInterpreter.EvaluateValue(action.Value, fact);
             OutputApplier.Apply(running, snapshot, action.Type, action.Target, value);
@@ -217,19 +239,23 @@ public sealed class RulewrightEngine
     }
 
     private IReadOnlyDictionary<string, object?> ApplyCompiledOutputs<TFact>(
-        RuleEntry entry, TFact fact, IDictionary<string, object?> running)
+        RuleEntry entry, bool isElse, TFact fact, IDictionary<string, object?> running)
     {
-        if (!entry.HasComplexOutputs)
+        bool hasComplex = isElse ? entry.HasComplexElseOutputs : entry.HasComplexOutputs;
+        IReadOnlyDictionary<string, object?> prematerialized = isElse ? entry.ElseOutputs : entry.Outputs;
+
+        if (!hasComplex)
         {
-            foreach (KeyValuePair<string, object?> output in entry.Outputs)
+            foreach (KeyValuePair<string, object?> output in prematerialized)
             {
                 running[output.Key] = output.Value;
             }
 
-            return entry.Outputs;
+            return prematerialized;
         }
 
-        OutputStep<TFact>[] steps = GetOrCompile<TFact>(entry).OutputSteps!;
+        CompiledRule<TFact> compiled = GetOrCompile<TFact>(entry);
+        OutputStep<TFact>[] steps = (isElse ? compiled.ElseOutputSteps : compiled.OutputSteps)!;
         var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (OutputStep<TFact> step in steps)
         {
@@ -245,7 +271,7 @@ public sealed class RulewrightEngine
         EvaluationOptions options,
         CompilationMode mode,
         Func<RuleEntry, bool?[]?, bool> evaluateRule,
-        Func<RuleEntry, IDictionary<string, object?>, IReadOnlyDictionary<string, object?>> applyOutputs)
+        Func<RuleEntry, bool, IDictionary<string, object?>, IReadOnlyDictionary<string, object?>> applyOutputs)
     {
         List<RuleTrace>? traceRules = options.EnableTrace
             ? new List<RuleTrace>(loaded.OrderedRules.Length)
@@ -279,15 +305,22 @@ public sealed class RulewrightEngine
 
             if (matched)
             {
-                // applyOutputs writes into the running outputs (overwrite, add, or append)
-                // and returns this rule's own view of what it wrote.
-                IReadOnlyDictionary<string, object?> ruleOutputs = applyOutputs(entry, outputs);
-                fired.Add(new FiredRule(entry.Rule.Id, ruleOutputs));
+                // applyOutputs writes into the running outputs (overwrite, add, append, or
+                // remove) and returns this rule's own view of what it wrote.
+                IReadOnlyDictionary<string, object?> ruleOutputs = applyOutputs(entry, false, outputs);
+                fired.Add(new FiredRule(entry.Rule.Id, ruleOutputs, RuleBranch.Then));
 
                 if (options.StopOnFirstMatch)
                 {
                     stopped = true;
                 }
+            }
+            else if (entry.HasElse)
+            {
+                // The condition failed but the rule has an else branch: apply it. This is not a
+                // match, so it never triggers stop-on-first-match.
+                IReadOnlyDictionary<string, object?> ruleOutputs = applyOutputs(entry, true, outputs);
+                fired.Add(new FiredRule(entry.Rule.Id, ruleOutputs, RuleBranch.Else));
             }
         }
 

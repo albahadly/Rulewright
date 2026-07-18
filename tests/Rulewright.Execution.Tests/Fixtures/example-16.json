@@ -1,0 +1,35 @@
+{
+  "ruleSet": {
+    "name": "Loyalty perks (first-class else + removeOutput)",
+    "rules": [
+      {
+        "id": "tier-perk",
+        "condition": { "field": "Customer.IsVip", "operator": "Equals", "value": true },
+        "actions": [ { "type": "setOutput", "target": "Badge", "value": "gold" } ],
+        "else": [ { "type": "setOutput", "target": "Badge", "value": "standard" } ]
+      },
+      {
+        "id": "grant-discount",
+        "priority": 10,
+        "condition": { "field": "Order.Total", "operator": "IsNotNull" },
+        "actions": [ { "type": "setOutput", "target": "Discount", "value": 10 } ]
+      },
+      {
+        "id": "revoke-small-orders",
+        "priority": 5,
+        "condition": { "field": "Order.Total", "operator": "LessThan", "value": 50 },
+        "actions": [ { "type": "removeOutput", "target": "Discount" } ]
+      }
+    ]
+  },
+  "fact": {
+    "Customer": { "IsVip": false },
+    "Order": { "Total": 30 }
+  },
+  "expected": {
+    "firedRules": [ "grant-discount", "revoke-small-orders", "tier-perk" ],
+    "outputs": {
+      "Badge": "standard"
+    }
+  }
+}

@@ -62,24 +62,25 @@ internal static class RuleExpressionCompiler
         Func<TFact, bool?[], bool> tracedPredicate =
             Expression.Lambda<Func<TFact, bool?[], bool>>(tracedBody, fact, results).Compile();
 
-        OutputStep<TFact>[]? outputSteps = CompileOutputs<TFact>(rule);
+        OutputStep<TFact>[]? outputSteps = CompileOutputs<TFact>(rule, rule.Actions);
+        OutputStep<TFact>[]? elseOutputSteps = CompileOutputs<TFact>(rule, rule.ElseActions);
 
-        return new CompiledRule<TFact>(predicate, tracedPredicate, outputSteps);
+        return new CompiledRule<TFact>(predicate, tracedPredicate, outputSteps, elseOutputSteps);
     }
 
     /// <summary>
-    /// Compiles a rule's actions into ordered output steps, but only when the rule is not
-    /// made purely of constant <c>setOutput</c> actions. Such rules return null so the engine
+    /// Compiles one branch's actions into ordered output steps, but only when the branch is not
+    /// made purely of constant <c>setOutput</c> actions. Such branches return null so the engine
     /// can reuse their pre-materialized outputs and avoid per-firing allocation. Field
     /// references inside value expressions are validated against <typeparamref name="TFact"/>
     /// at compile time, exactly like condition fields.
     /// </summary>
-    private static OutputStep<TFact>[]? CompileOutputs<TFact>(Rule rule)
+    private static OutputStep<TFact>[]? CompileOutputs<TFact>(Rule rule, IReadOnlyList<RuleAction> actions)
     {
         bool anyComplex = false;
-        for (int i = 0; i < rule.Actions.Count; i++)
+        for (int i = 0; i < actions.Count; i++)
         {
-            if (!OutputApplier.IsLiteralSet(rule.Actions[i]))
+            if (!OutputApplier.IsLiteralSet(actions[i]))
             {
                 anyComplex = true;
                 break;
@@ -92,11 +93,11 @@ internal static class RuleExpressionCompiler
         }
 
         ParameterExpression fact = Expression.Parameter(typeof(TFact), "fact");
-        int count = rule.Actions.Count;
+        int count = actions.Count;
         var steps = new OutputStep<TFact>[count];
         for (int i = 0; i < count; i++)
         {
-            RuleAction action = rule.Actions[i];
+            RuleAction action = actions[i];
             Func<TFact, object?> valueFactory;
             if (action.Value is LiteralExpression literal)
             {

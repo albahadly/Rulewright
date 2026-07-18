@@ -106,10 +106,10 @@ dotnet add package Rulewright.Json.SystemText
 
 | Term | Meaning |
 |---|---|
-| **Rule** | `id` + condition tree + actions (+ `priority`, `enabled`, ignored `layout`). |
+| **Rule** | `id` + condition tree + `actions` (+ optional `else` actions, `priority`, `enabled`, ignored `layout`). |
 | **Condition** | A leaf (`field` / `operator` / `value`) or a group (`AND` / `OR` / `NOT` over children). |
 | **Fact** | The object a rule set is evaluated against: a typed POCO (compiled path) or an `IDictionary<string, object>` (interpreted path). |
-| **Action** | Writes a `value` (constant or computed) to the outputs at `target`. `setOutput` replaces, `addToOutput` sums, `appendToOutput` collects into a list. |
+| **Action** | Changes the outputs at `target`. `setOutput` replaces, `addToOutput` sums, `appendToOutput` collects into a list, `removeOutput` deletes. Runs from `actions` when the condition matches, or `else` when it does not. |
 
 ### Operators
 
@@ -198,6 +198,7 @@ already written to that `target`, applied in priority order across the whole eva
 | `setOutput` | Replaces the value at `target`. |
 | `addToOutput` | Adds numerically — a running total across fired rules. |
 | `appendToOutput` | Appends to a list at `target` — collected across fired rules. |
+| `removeOutput` | Deletes `target`, undoing what an earlier rule wrote (takes no `value`). |
 
 ```json
 "actions": [
@@ -211,6 +212,21 @@ The accumulators are **null-tolerant**: a value that resolves to null (and, for 
 any non-numeric value) contributes nothing rather than wiping the running result — so one stray
 rule can't destroy a total. Each fired rule's own `Outputs` snapshot reflects the result *at
 that rule's firing* (`appendToOutput` copies the list, so earlier snapshots stay frozen).
+
+**Else actions.** A rule may carry an `else` array alongside `actions`: it runs the `actions`
+when the condition matches and the `else` actions when it does not — an if/else in one rule,
+rather than a rule plus a negated twin. An else-branch firing is not a match, so it never
+triggers `stopOnFirstMatch`. Each such rule appears in `FiredRules` with a `Branch` of `Then`
+or `Else` telling you which side ran.
+
+```json
+{
+  "id": "tier",
+  "condition": { "field": "Customer.IsVip", "operator": "Equals", "value": true },
+  "actions": [ { "type": "setOutput", "target": "Badge", "value": "gold" } ],
+  "else":    [ { "type": "setOutput", "target": "Badge", "value": "standard" } ]
+}
+```
 
 ### Decision tables
 
@@ -302,9 +318,10 @@ Called out explicitly so expectations are clear:
   schema + validator, benchmarks, net48 proof.
 - **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
   `concat`, `coalesce` over fact fields), accumulating action types
-  (`addToOutput`/`appendToOutput`), and decision-table authoring have shipped. Also on
-  the track: Newtonsoft adapter, function catalog/discovery API, and the
-  NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
+  (`addToOutput`/`appendToOutput`), a `removeOutput` retract action, first-class `else`
+  actions, and decision-table authoring have shipped. Also on the track: Newtonsoft
+  adapter, function catalog/discovery API, and the NRules/RulesEngine benchmark comparison
+  in `docs/benchmarks.md`.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
   From v1 on, changes to the `layout` contract or the JSON Schema are treated as
   breaking changes.

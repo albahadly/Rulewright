@@ -84,29 +84,38 @@ Rulewright.Json.Newtonsoft ──┤ (adapters: JSON text → neutral DOM)
 
 ## Action values (constant and computed)
 
-Every action writes a single `value` to a `target`. That value is always a `ValueExpression`
+Most actions write a single `value` to a `target`. That value is always a `ValueExpression`
 — a closed, pure-data AST (`LiteralExpression`, `FieldExpression`, `OperatorExpression`)
 mirroring the condition tree, with no embedded code strings. A JSON scalar parses to a
 `LiteralExpression`; a JSON object to a field, operator, or explicit-literal node. There is
 one value key, not two: a constant is simply the simplest expression. The action `type`
-(`setOutput` / `addToOutput` / `appendToOutput`) decides how the value combines with the
+(`setOutput` / `addToOutput` / `appendToOutput` / `removeOutput`) decides how it changes the
 running result.
 
 - **Application, not merge.** Actions apply to a single running outputs dictionary owned by
   the evaluation, in priority order across all fired rules — so accumulators (`addToOutput`,
-  `appendToOutput`) build totals and collections over the whole run. `OutputApplier`
-  centralizes the set/add/append semantics so the compiled and interpreted paths behave
-  identically. Each fired rule also returns its own snapshot of what it wrote (the value at
-  each touched target right after the rule); `appendToOutput` copies the list on write, so a
-  rule's snapshot stays frozen as later rules extend the collection.
-- **Compilation.** A rule with any action that is not a constant `setOutput` gets, alongside
-  its two predicates, an array of `OutputStep<TFact>` (action type, target, and a compiled
-  `Func<TFact, object?>` value delegate), cached under the same `(fact type, content hash)`
-  key. Field reads compile to the same null-guarded member access as conditions and are
-  **type-checked against the fact at compile time**; a missing member is a
-  `RuleCompilationException`, not a runtime surprise. Rules made purely of constant
-  `setOutput` actions carry **no** steps — the engine pre-materializes their outputs into one
-  shared dictionary and allocates nothing per firing.
+  `appendToOutput`) build totals and collections over the whole run, and `removeOutput` can
+  delete a key an earlier rule wrote. `OutputApplier` centralizes the set/add/append/remove
+  semantics so the compiled and interpreted paths behave identically. Each fired rule also
+  returns its own snapshot of what it wrote (the value at each touched target right after the
+  rule); `appendToOutput` copies the list on write, so a rule's snapshot stays frozen as later
+  rules extend the collection, and `removeOutput` deletes the key from the snapshot too so a
+  rule never reports a value it just removed.
+- **Else branch.** A rule may carry `else` actions that run when its condition is *false*
+  (the ordinary `actions` run when it is true). The engine applies exactly one branch per
+  non-skipped rule; an else-branch firing is not a match, so it never triggers
+  `stopOnFirstMatch`. Each branch is prepared independently — its own pre-materialized
+  dictionary or `OutputStep<TFact>[]` — and a rule appears in `FiredRules` with `Branch` set
+  to `Then` or `Else`. `removeOutput` is a natural else action (grant in `actions`, retract in
+  `else`).
+- **Compilation.** A branch with any action that is not a constant `setOutput` gets, alongside
+  the rule's two predicates, an array of `OutputStep<TFact>` (action type, target, and a
+  compiled `Func<TFact, object?>` value delegate), cached under the same `(fact type, content
+  hash)` key — one array for `actions`, one for `else`. Field reads compile to the same
+  null-guarded member access as conditions and are **type-checked against the fact at compile
+  time**; a missing member is a `RuleCompilationException`, not a runtime surprise. A branch
+  made purely of constant `setOutput` actions carries **no** steps — the engine
+  pre-materializes its outputs into one shared dictionary and allocates nothing per firing.
 - **Shared semantics.** Both paths funnel operator evaluation through one place —
   `ValueExpressionOps`, operating on boxed `object?`. The compiled path emits calls to
   those methods (field access stays compiled/reflection-free); the interpreter
@@ -125,7 +134,9 @@ running result.
 - **Hashing.** The content hash covers action values (canonical
   `{"target":…,"type":…,"value":…}`, the value rendered as a bare scalar for a literal or as
   the node object otherwise). `5` and `{ "literal": 5 }` parse to the same
-  `LiteralExpression` and therefore hash identically.
+  `LiteralExpression` and therefore hash identically. `removeOutput` omits the `value` key
+  (it has none), and `else` actions add a canonical `"else":[…]` section only when present —
+  so a rule with no else keeps its former hash.
 
 ## Decision tables
 

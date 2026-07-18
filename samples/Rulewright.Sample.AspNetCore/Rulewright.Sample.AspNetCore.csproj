@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Scaffold project: the full sample (rule evaluation endpoint, hot-reload demo)
+         lands in a follow-up milestone. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Rulewright.Execution\Rulewright.Execution.csproj" />
+    <ProjectReference Include="..\..\src\Rulewright.Json.SystemText\Rulewright.Json.SystemText.csproj" />
+  </ItemGroup>
+
+</Project>

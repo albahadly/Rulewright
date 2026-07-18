@@ -1,0 +1,29 @@
+{
+  "ruleSet": {
+    "id": "eu-non-blocked-shopper",
+    "condition": {
+      "type": "group",
+      "operator": "AND",
+      "rules": [
+        { "field": "Country", "operator": "In", "value": ["NL", "DE", "FR"] },
+        {
+          "type": "group",
+          "operator": "NOT",
+          "rules": [
+            { "field": "Email", "operator": "MatchesRegex", "value": "@blocked\\.example$" }
+          ]
+        },
+        { "field": "Referrer", "operator": "IsNull" }
+      ]
+    },
+    "actions": [ { "type": "setOutput", "target": "Eligible", "value": true } ]
+  },
+  "fact": {
+    "Country": "NL",
+    "Email": "user@shop.example"
+  },
+  "expected": {
+    "firedRules": ["eu-non-blocked-shopper"],
+    "outputs": { "Eligible": true }
+  }
+}

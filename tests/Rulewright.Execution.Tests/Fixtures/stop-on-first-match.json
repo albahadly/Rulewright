@@ -1,0 +1,25 @@
+{
+  "ruleSet": {
+    "name": "tiered-discounts",
+    "rules": [
+      {
+        "id": "gold-tier",
+        "priority": 100,
+        "condition": { "field": "Tier", "operator": "Equals", "value": "Gold" },
+        "actions": [ { "type": "setOutput", "target": "Discount", "value": 20 } ]
+      },
+      {
+        "id": "any-member",
+        "priority": 1,
+        "condition": { "field": "Tier", "operator": "In", "value": ["Bronze", "Silver", "Gold"] },
+        "actions": [ { "type": "setOutput", "target": "Discount", "value": 5 } ]
+      }
+    ]
+  },
+  "options": { "stopOnFirstMatch": true },
+  "fact": { "Tier": "Gold" },
+  "expected": {
+    "firedRules": ["gold-tier"],
+    "outputs": { "Discount": 20 }
+  }
+}

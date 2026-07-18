@@ -1,0 +1,31 @@
+{
+  "ruleSet": {
+    "rules": [
+      {
+        "id": "base-shipping",
+        "priority": 10,
+        "condition": { "field": "Order.Total", "operator": "GreaterThan", "value": 0 },
+        "actions": [
+          { "type": "setOutput", "target": "Shipping", "value": 4.95 },
+          { "type": "setOutput", "target": "Carrier", "value": "standard" }
+        ]
+      },
+      {
+        "id": "free-shipping-over-50",
+        "priority": 1,
+        "condition": { "field": "Order.Total", "operator": "GreaterThanOrEqual", "value": 50 },
+        "actions": [ { "type": "setOutput", "target": "Shipping", "value": 0 } ]
+      }
+    ]
+  },
+  "fact": {
+    "Order": { "Total": 72.4 }
+  },
+  "expected": {
+    "firedRules": ["base-shipping", "free-shipping-over-50"],
+    "outputs": {
+      "Shipping": 0,
+      "Carrier": "standard"
+    }
+  }
+}

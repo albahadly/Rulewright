@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    name: Windows (net8.0 + net48)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build
+        run: dotnet build Rulewright.slnx -c Release
+      - name: Test (net8.0 + net48)
+        run: dotnet test Rulewright.slnx -c Release --no-build
+      - name: .NET Framework 4.8 smoke test
+        run: dotnet run --project samples/Rulewright.Sample.NetFramework48 -c Release --no-build
+
+  linux:
+    name: Linux (net8.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build
+        run: dotnet build Rulewright.slnx -c Release
+      - name: Test (net8.0)
+        run: dotnet test Rulewright.slnx -c Release --no-build -f net8.0
+      - name: Console sample smoke test
+        run: dotnet run --project samples/Rulewright.Sample.ConsoleApp -c Release --no-build

@@ -1,0 +1,23 @@
+{
+  "ruleSet": {
+    "id": "discount-rule-01",
+    "condition": {
+      "type": "group",
+      "operator": "AND",
+      "rules": [
+        { "field": "Customer.Age", "operator": "GreaterThan", "value": 18 },
+        { "field": "Customer.IsVip", "operator": "Equals", "value": true }
+      ]
+    },
+    "actions": [
+      { "type": "setOutput", "target": "Discount", "value": 10 }
+    ]
+  },
+  "fact": {
+    "Customer": { "Age": 16, "IsVip": true }
+  },
+  "expected": {
+    "firedRules": [],
+    "outputs": {}
+  }
+}

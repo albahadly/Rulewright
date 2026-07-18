@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rulewright.dev/schema/rule-schema.json",
+  "title": "Rulewright rule document",
+  "description": "A Rulewright rule document: either a single rule or a rule set. Logic lives in 'condition' and 'actions'; the 'layout' key is presentation metadata for canvas tools and is ignored entirely by the engine.",
+  "oneOf": [
+    { "$ref": "#/$defs/rule" },
+    { "$ref": "#/$defs/ruleSet" }
+  ],
+  "$defs": {
+    "ruleSet": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Optional display name for the rule set."
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rule" },
+          "minItems": 1,
+          "description": "The rules in this set. Evaluation order is by descending 'priority', then document order."
+        }
+      },
+      "required": ["rules"]
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for the rule within its set."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable summary of what the rule does."
+        },
+        "priority": {
+          "type": "integer",
+          "default": 0,
+          "description": "Higher-priority rules are evaluated first; ties keep document order."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Disabled rules are skipped entirely during evaluation."
+        },
+        "condition": { "$ref": "#/$defs/condition" },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" },
+          "description": "Actions applied when the condition evaluates to true."
+        },
+        "layout": {
+          "type": "object",
+          "description": "Presentation/layout metadata for visual rule builders (node positions, canvas ids). The engine never reads this key, and it is excluded from the rule content hash used for compilation caching."
+        }
+      },
+      "required": ["id", "condition"],
+      "not": { "required": ["type"] }
+    },
+    "condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/conditionGroup" },
+        { "$ref": "#/$defs/conditionLeaf" }
+      ]
+    },
+    "conditionGroup": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "group" },
+        "operator": {
+          "enum": ["AND", "OR", "NOT"],
+          "description": "Logical combinator. AND/OR take one or more child conditions and short-circuit left to right; NOT takes exactly one child."
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/condition" },
+          "minItems": 1,
+          "description": "Child conditions."
+        }
+      },
+      "required": ["type", "operator", "rules"],
+      "if": {
+        "properties": { "operator": { "const": "NOT" } }
+      },
+      "then": {
+        "properties": {
+          "rules": { "maxItems": 1 }
+        }
+      }
+    },
+    "conditionLeaf": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dotted path resolved against the fact, e.g. 'Customer.Age'."
+        },
+        "operator": {
+          "enum": [
+            "Equals",
+            "NotEquals",
+            "GreaterThan",
+            "GreaterThanOrEqual",
+            "LessThan",
+            "LessThanOrEqual",
+            "Contains",
+            "StartsWith",
+            "EndsWith",
+            "MatchesRegex",
+            "In",
+            "NotIn",
+            "IsNull",
+            "IsNotNull",
+            "custom"
+          ]
+        },
+        "value": {
+          "description": "Comparison operand. Type depends on the operator: scalar for comparisons, string for string operators, array for In/NotIn, forbidden for IsNull/IsNotNull."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Registered custom function name; required when operator is 'custom'."
+        }
+      },
+      "required": ["operator"],
+      "not": { "required": ["type"] },
+      "allOf": [
+        {
+          "if": { "properties": { "operator": { "const": "custom" } }, "required": ["operator"] },
+          "then": { "required": ["name"] },
+          "else": { "required": ["field"] }
+        },
+        {
+          "if": { "properties": { "operator": { "enum": ["In", "NotIn"] } }, "required": ["operator"] },
+          "then": {
+            "properties": {
+              "value": { "type": "array", "minItems": 1 }
+            },
+            "required": ["value"]
+          }
+        },
+        {
+          "if": { "properties": { "operator": { "enum": ["Contains", "StartsWith", "EndsWith", "MatchesRegex"] } }, "required": ["operator"] },
+          "then": {
+            "properties": {
+              "value": { "type": "string" }
+            },
+            "required": ["value"]
+          }
+        },
+        {
+          "if": { "properties": { "operator": { "enum": ["IsNull", "IsNotNull"] } }, "required": ["operator"] },
+          "then": { "not": { "required": ["value"] } }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": ["Equals", "NotEquals", "GreaterThan", "GreaterThanOrEqual", "LessThan", "LessThanOrEqual"]
+              }
+            },
+            "required": ["operator"]
+          },
+          "then": { "required": ["value"] }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["setOutput"],
+          "description": "Action kind. v1 supports 'setOutput': write a constant value into the evaluation result's outputs."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Output key to set."
+        },
+        "value": {
+          "description": "Value written to the output key. Constant in v1."
+        }
+      },
+      "required": ["type", "target", "value"]
+    }
+  }
+}

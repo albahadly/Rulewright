@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Rulewright.Sample.AspNetCore/Rulewright.Sample.AspNetCore.csproj" />
+    <Project Path="samples/Rulewright.Sample.ConsoleApp/Rulewright.Sample.ConsoleApp.csproj" />
+    <Project Path="samples/Rulewright.Sample.NetFramework48/Rulewright.Sample.NetFramework48.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Rulewright.Core/Rulewright.Core.csproj" />
+    <Project Path="src/Rulewright.Execution/Rulewright.Execution.csproj" />
+    <Project Path="src/Rulewright.Extensions.Functions/Rulewright.Extensions.Functions.csproj" />
+    <Project Path="src/Rulewright.Json.NewtonsoftJson/Rulewright.Json.NewtonsoftJson.csproj" />
+    <Project Path="src/Rulewright.Json.SystemText/Rulewright.Json.SystemText.csproj" />
+    <Project Path="src/Rulewright.Serialization/Rulewright.Serialization.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Rulewright.Benchmarks/Rulewright.Benchmarks.csproj" />
+    <Project Path="tests/Rulewright.Core.Tests/Rulewright.Core.Tests.csproj" />
+    <Project Path="tests/Rulewright.Execution.Tests/Rulewright.Execution.Tests.csproj" />
+    <Project Path="tests/Rulewright.Serialization.Tests/Rulewright.Serialization.Tests.csproj" />
+  </Folder>
+</Solution>

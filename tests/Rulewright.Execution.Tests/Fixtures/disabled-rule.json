@@ -1,0 +1,22 @@
+{
+  "ruleSet": {
+    "rules": [
+      {
+        "id": "disabled-promo",
+        "enabled": false,
+        "condition": { "field": "Total", "operator": "GreaterThan", "value": 0 },
+        "actions": [ { "type": "setOutput", "target": "Promo", "value": "SUMMER" } ]
+      },
+      {
+        "id": "active-promo",
+        "condition": { "field": "Total", "operator": "GreaterThan", "value": 10 },
+        "actions": [ { "type": "setOutput", "target": "Promo", "value": "WELCOME" } ]
+      }
+    ]
+  },
+  "fact": { "Total": 25 },
+  "expected": {
+    "firedRules": ["active-promo"],
+    "outputs": { "Promo": "WELCOME" }
+  }
+}

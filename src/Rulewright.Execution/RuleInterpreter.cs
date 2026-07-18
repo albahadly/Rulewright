@@ -1,0 +1,199 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using Rulewright.Core;
+
+namespace Rulewright.Execution;
+
+/// <summary>
+/// The dynamic-fact fallback: walks the condition tree against dictionary facts
+/// (<c>IDictionary&lt;string, object&gt;</c>, nested dictionaries, or POCOs reached via
+/// cached reflection). Slower than compiled delegates by design — results flag it via
+/// <see cref="CompilationMode.Interpreted"/> so the degradation is visible, never silent.
+/// </summary>
+internal static class RuleInterpreter
+{
+    private static readonly ConcurrentDictionary<string, Regex> RegexCache =
+        new ConcurrentDictionary<string, Regex>(StringComparer.Ordinal);
+
+    private static readonly ConcurrentDictionary<(Type Type, string Name), MemberInfo?> MemberCache =
+        new ConcurrentDictionary<(Type, string), MemberInfo?>();
+
+    internal static bool Evaluate(
+        ConditionNode node,
+        object fact,
+        IReadOnlyDictionary<string, IRuleFunction> functions,
+        bool?[]? results,
+        Dictionary<ConditionNode, int>? nodeIndex)
+    {
+        bool outcome;
+        if (node is ConditionGroup group)
+        {
+            switch (group.Operator)
+            {
+                case LogicalOperator.And:
+                    outcome = true;
+                    foreach (ConditionNode child in group.Children)
+                    {
+                        if (!Evaluate(child, fact, functions, results, nodeIndex))
+                        {
+                            outcome = false;
+                            break;
+                        }
+                    }
+
+                    break;
+
+                case LogicalOperator.Or:
+                    outcome = false;
+                    foreach (ConditionNode child in group.Children)
+                    {
+                        if (Evaluate(child, fact, functions, results, nodeIndex))
+                        {
+                            outcome = true;
+                            break;
+                        }
+                    }
+
+                    break;
+
+                default:
+                    outcome = !Evaluate(group.Children[0], fact, functions, results, nodeIndex);
+                    break;
+            }
+        }
+        else
+        {
+            outcome = EvaluateLeaf((ConditionLeaf)node, fact, functions);
+        }
+
+        if (results is not null)
+        {
+            results[nodeIndex![node]] = outcome;
+        }
+
+        return outcome;
+    }
+
+    private static bool EvaluateLeaf(ConditionLeaf leaf, object fact, IReadOnlyDictionary<string, IRuleFunction> functions)
+    {
+        object? fieldValue = leaf.Field is null ? fact : ResolvePath(fact, leaf.Field);
+
+        switch (leaf.Operator)
+        {
+            case ConditionOperator.IsNull:
+                return fieldValue is null;
+
+            case ConditionOperator.IsNotNull:
+                return fieldValue is not null;
+
+            case ConditionOperator.Custom:
+                return functions[leaf.FunctionName!].Evaluate(fieldValue, leaf.Value);
+
+            case ConditionOperator.Equal:
+                return RuntimeComparisons.AreEqual(fieldValue, leaf.Value);
+
+            case ConditionOperator.NotEqual:
+                return !RuntimeComparisons.AreEqual(fieldValue, leaf.Value);
+
+            case ConditionOperator.GreaterThan:
+                return RuntimeComparisons.TryCompare(fieldValue, leaf.Value) > 0;
+
+            case ConditionOperator.GreaterThanOrEqual:
+                return RuntimeComparisons.TryCompare(fieldValue, leaf.Value) >= 0;
+
+            case ConditionOperator.LessThan:
+                return RuntimeComparisons.TryCompare(fieldValue, leaf.Value) < 0;
+
+            case ConditionOperator.LessThanOrEqual:
+                return RuntimeComparisons.TryCompare(fieldValue, leaf.Value) <= 0;
+
+            case ConditionOperator.Contains:
+                return fieldValue is string containsText && containsText.Contains((string)leaf.Value!);
+
+            case ConditionOperator.StartsWith:
+                return fieldValue is string startsText
+                    && startsText.StartsWith((string)leaf.Value!, StringComparison.Ordinal);
+
+            case ConditionOperator.EndsWith:
+                return fieldValue is string endsText
+                    && endsText.EndsWith((string)leaf.Value!, StringComparison.Ordinal);
+
+            case ConditionOperator.MatchesRegex:
+                return fieldValue is string regexText && GetRegex((string)leaf.Value!).IsMatch(regexText);
+
+            case ConditionOperator.In:
+                return IsInSet(fieldValue, (object?[])leaf.Value!);
+
+            default: // NotIn
+                return !IsInSet(fieldValue, (object?[])leaf.Value!);
+        }
+    }
+
+    private static bool IsInSet(object? fieldValue, object?[] items)
+    {
+        foreach (object? item in items)
+        {
+            if (RuntimeComparisons.AreEqual(fieldValue, item))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static object? ResolvePath(object fact, string path)
+    {
+        object? current = fact;
+        foreach (string segment in path.Split('.'))
+        {
+            if (current is null)
+            {
+                return null;
+            }
+
+            current = ResolveSegment(current, segment);
+        }
+
+        return current;
+    }
+
+    private static object? ResolveSegment(object current, string name)
+    {
+        // Missing dictionary keys resolve to null (the operator's null semantics then
+        // apply), because dynamic facts have no compile-time shape to validate against.
+        if (current is IDictionary<string, object?> generic)
+        {
+            return generic.TryGetValue(name, out object? value) ? value : null;
+        }
+
+        if (current is System.Collections.IDictionary nonGeneric)
+        {
+            return nonGeneric.Contains(name) ? nonGeneric[name] : null;
+        }
+
+        MemberInfo? member = MemberCache.GetOrAdd((current.GetType(), name), FindMember);
+        return member switch
+        {
+            PropertyInfo property => property.GetValue(current),
+            FieldInfo field => field.GetValue(current),
+            _ => null,
+        };
+    }
+
+    private static MemberInfo? FindMember((Type Type, string Name) key)
+    {
+        const BindingFlags exact = BindingFlags.Instance | BindingFlags.Public;
+        const BindingFlags relaxed = exact | BindingFlags.IgnoreCase;
+        return (MemberInfo?)key.Type.GetProperty(key.Name, exact)
+            ?? (MemberInfo?)key.Type.GetField(key.Name, exact)
+            ?? (MemberInfo?)key.Type.GetProperty(key.Name, relaxed)
+            ?? key.Type.GetField(key.Name, relaxed);
+    }
+
+    private static Regex GetRegex(string pattern)
+        => RegexCache.GetOrAdd(pattern, p => new Regex(p, RegexOptions.Compiled));
+}

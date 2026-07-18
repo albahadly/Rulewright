@@ -1,4 +1,5 @@
 using System;
+using Rulewright.Core;
 using Rulewright.Json.SystemText;
 using Rulewright.Serialization;
 using Xunit;
@@ -25,7 +26,7 @@ public class ExampleFilesTests
 
     [Theory]
     [MemberData(nameof(ExampleFiles))]
-    public void Example_ValidatesAndLoads(string fileName)
+    public void Example_ValidatesLoadsAndEvaluates(string fileName)
     {
         string json = File.ReadAllText(Path.Combine(ExamplesDirectory, fileName));
 
@@ -38,7 +39,39 @@ public class ExampleFilesTests
         // (a decision table expands to rules here).
         LoadedRuleSet loaded = Engine.LoadRuleSet(json);
         Assert.NotEmpty(loaded.RuleSet.Rules);
+
+        // Evaluation is total — it never throws on data — so every example must run cleanly
+        // against a representative fact (with tracing on, exercising both compiled delegates).
+        var result = Engine.Evaluate(loaded, RepresentativeFact(), new EvaluationOptions { EnableTrace = true });
+        Assert.NotNull(result.Outputs);
+        Assert.NotNull(result.Trace);
     }
+
+    private static Dictionary<string, object?> RepresentativeFact() => new()
+    {
+        ["Customer"] = new Dictionary<string, object?>
+        {
+            ["Name"] = "Alice",
+            ["Age"] = 30L,
+            ["Tier"] = "vip",
+            ["IsVip"] = true,
+            ["LoyaltyYears"] = 5L,
+            ["Country"] = "US",
+            ["Email"] = "alice@acme.com",
+            ["PostCode"] = "12345",
+        },
+        ["Order"] = new Dictionary<string, object?>
+        {
+            ["Total"] = 150m,
+            ["ItemCount"] = 3L,
+            ["Weight"] = 2.5,
+            ["Coupon"] = "SAVE10",
+            ["Category"] = "books",
+            ["ShippingCost"] = 5m,
+            ["DiscountApplied"] = 10m,
+            ["PlacedOn"] = new DateTime(2026, 7, 18),
+        },
+    };
 
     private static string FindExamplesDirectory()
     {

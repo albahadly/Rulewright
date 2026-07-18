@@ -1,4 +1,19 @@
 <Solution>
+  <Folder Name="/examples/">
+    <File Path="examples/README.md" />
+    <File Path="examples/01-quickstart-single-rule.json" />
+    <File Path="examples/02-rule-set-priority.json" />
+    <File Path="examples/03-string-operators.json" />
+    <File Path="examples/04-collection-operators.json" />
+    <File Path="examples/05-null-and-coalesce.json" />
+    <File Path="examples/06-nested-logic.json" />
+    <File Path="examples/07-computed-values.json" />
+    <File Path="examples/08-arithmetic-operators.json" />
+    <File Path="examples/09-accumulators-risk-scoring.json" />
+    <File Path="examples/10-decision-table-first.json" />
+    <File Path="examples/11-decision-table-collect-scoring.json" />
+    <File Path="examples/12-custom-function.json" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Rulewright.Sample.AspNetCore/Rulewright.Sample.AspNetCore.csproj" />
     <Project Path="samples/Rulewright.Sample.ConsoleApp/Rulewright.Sample.ConsoleApp.csproj" />

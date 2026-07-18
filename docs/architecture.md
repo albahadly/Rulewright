@@ -78,20 +78,29 @@ Rulewright.Json.Newtonsoft ──┤ (adapters: JSON text → neutral DOM)
 
 ## Action values (constant and computed)
 
-A `setOutput` action writes a single `value`. That value is always a `ValueExpression` —
-a closed, pure-data AST (`LiteralExpression`, `FieldExpression`, `OperatorExpression`)
+Every action writes a single `value` to a `target`. That value is always a `ValueExpression`
+— a closed, pure-data AST (`LiteralExpression`, `FieldExpression`, `OperatorExpression`)
 mirroring the condition tree, with no embedded code strings. A JSON scalar parses to a
 `LiteralExpression`; a JSON object to a field, operator, or explicit-literal node. There is
-one key, not two: a constant is simply the simplest expression.
+one value key, not two: a constant is simply the simplest expression. The action `type`
+(`setOutput` / `addToOutput` / `appendToOutput`) decides how the value combines with the
+running result.
 
-- **Compilation.** A rule with any non-literal action value gets a third compiled delegate
-  (`Func<TFact, IReadOnlyDictionary<string, object?>>`) alongside its two predicates,
-  cached under the same `(fact type, content hash)` key. Field reads compile to the same
-  null-guarded member access as conditions and are **type-checked against the fact at
-  compile time**; a missing member is a `RuleCompilationException`, not a runtime surprise.
-  Rules whose action values are *all* literals carry **no** output delegate — the engine
-  pre-materializes their outputs into one shared dictionary and allocates nothing per
-  firing.
+- **Application, not merge.** Actions apply to a single running outputs dictionary owned by
+  the evaluation, in priority order across all fired rules — so accumulators (`addToOutput`,
+  `appendToOutput`) build totals and collections over the whole run. `OutputApplier`
+  centralizes the set/add/append semantics so the compiled and interpreted paths behave
+  identically. Each fired rule also returns its own snapshot of what it wrote (the value at
+  each touched target right after the rule); `appendToOutput` copies the list on write, so a
+  rule's snapshot stays frozen as later rules extend the collection.
+- **Compilation.** A rule with any action that is not a constant `setOutput` gets, alongside
+  its two predicates, an array of `OutputStep<TFact>` (action type, target, and a compiled
+  `Func<TFact, object?>` value delegate), cached under the same `(fact type, content hash)`
+  key. Field reads compile to the same null-guarded member access as conditions and are
+  **type-checked against the fact at compile time**; a missing member is a
+  `RuleCompilationException`, not a runtime surprise. Rules made purely of constant
+  `setOutput` actions carry **no** steps — the engine pre-materializes their outputs into one
+  shared dictionary and allocates nothing per firing.
 - **Shared semantics.** Both paths funnel operator evaluation through one place —
   `ValueExpressionOps`, operating on boxed `object?`. The compiled path emits calls to
   those methods (field access stays compiled/reflection-free); the interpreter
@@ -103,7 +112,10 @@ one key, not two: a constant is simply the simplest expression.
   null result (except `coalesce`, which returns the first non-null operand), a non-numeric
   operand to an arithmetic operator yields null, and division or modulo by zero yields
   null. Arithmetic runs in `decimal` unless a binary floating-point operand forces
-  `double`, so `divide` is never silently integer-truncated.
+  `double`, so `divide` is never silently integer-truncated. The accumulators are equally
+  tolerant: `addToOutput` ignores a null or non-numeric contribution (initializing from a
+  decimal zero) and `appendToOutput` ignores a null, so one stray rule cannot wipe a total
+  or a collection.
 - **Hashing.** The content hash covers action values (canonical
   `{"target":…,"type":…,"value":…}`, the value rendered as a bare scalar for a literal or as
   the node object otherwise). `5` and `{ "literal": 5 }` parse to the same

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -60,65 +59,57 @@ internal static class RuleExpressionCompiler
         Func<TFact, bool?[], bool> tracedPredicate =
             Expression.Lambda<Func<TFact, bool?[], bool>>(tracedBody, fact, results).Compile();
 
-        Func<TFact, IReadOnlyDictionary<string, object?>>? produceOutputs = CompileOutputs<TFact>(rule);
+        OutputStep<TFact>[]? outputSteps = CompileOutputs<TFact>(rule);
 
-        return new CompiledRule<TFact>(predicate, tracedPredicate, produceOutputs);
+        return new CompiledRule<TFact>(predicate, tracedPredicate, outputSteps);
     }
 
     /// <summary>
-    /// Compiles a rule's action outputs into a delegate, but only when at least one action
-    /// is computed. Constant-only rules return null so the engine can reuse the rule's
-    /// pre-materialized outputs and avoid per-firing allocation. Field references inside
-    /// value expressions are validated against <typeparamref name="TFact"/> at compile time,
-    /// exactly like condition fields.
+    /// Compiles a rule's actions into ordered output steps, but only when the rule is not
+    /// made purely of constant <c>setOutput</c> actions. Such rules return null so the engine
+    /// can reuse their pre-materialized outputs and avoid per-firing allocation. Field
+    /// references inside value expressions are validated against <typeparamref name="TFact"/>
+    /// at compile time, exactly like condition fields.
     /// </summary>
-    private static Func<TFact, IReadOnlyDictionary<string, object?>>? CompileOutputs<TFact>(Rule rule)
+    private static OutputStep<TFact>[]? CompileOutputs<TFact>(Rule rule)
     {
-        bool anyComputed = false;
+        bool anyComplex = false;
         for (int i = 0; i < rule.Actions.Count; i++)
         {
-            if (rule.Actions[i].Value is not LiteralExpression)
+            if (!OutputApplier.IsLiteralSet(rule.Actions[i]))
             {
-                anyComputed = true;
+                anyComplex = true;
                 break;
             }
         }
 
-        if (!anyComputed)
+        if (!anyComplex)
         {
             return null;
         }
 
         ParameterExpression fact = Expression.Parameter(typeof(TFact), "fact");
         int count = rule.Actions.Count;
-        var targets = new string[count];
-        var factories = new Func<TFact, object?>[count];
+        var steps = new OutputStep<TFact>[count];
         for (int i = 0; i < count; i++)
         {
             RuleAction action = rule.Actions[i];
-            targets[i] = action.Target;
+            Func<TFact, object?> valueFactory;
             if (action.Value is LiteralExpression literal)
             {
                 object? constant = literal.Value;
-                factories[i] = _ => constant;
+                valueFactory = _ => constant;
             }
             else
             {
                 Expression body = BuildValueExpression(action.Value, fact, rule);
-                factories[i] = Expression.Lambda<Func<TFact, object?>>(body, fact).Compile();
+                valueFactory = Expression.Lambda<Func<TFact, object?>>(body, fact).Compile();
             }
+
+            steps[i] = new OutputStep<TFact>(action.Type, action.Target, valueFactory);
         }
 
-        return f =>
-        {
-            var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
-            for (int i = 0; i < targets.Length; i++)
-            {
-                outputs[targets[i]] = factories[i](f);
-            }
-
-            return new ReadOnlyDictionary<string, object?>(outputs);
-        };
+        return steps;
     }
 
     private static Expression BuildValueExpression(ValueExpression expression, ParameterExpression fact, Rule rule)

@@ -361,13 +361,17 @@ public static class RuleSetValidator
             return;
         }
 
-        if (!action.TryGetProperty("type", out RuleJsonValue type)
+        bool hasType = action.TryGetProperty("type", out RuleJsonValue type);
+        if (!hasType
             || type.Kind != RuleJsonValueKind.String
-            || type.GetString() != Core.RuleAction.SetOutputType)
+            || (type.GetString() != Core.RuleAction.SetOutputType
+                && type.GetString() != Core.RuleAction.AddToOutputType
+                && type.GetString() != Core.RuleAction.AppendToOutputType))
         {
             errors.Add(new RuleValidationError(
-                action.TryGetProperty("type", out _) ? path + "/type" : path,
-                $"Action 'type' must be \"{Core.RuleAction.SetOutputType}\"."));
+                hasType ? path + "/type" : path,
+                $"Action 'type' must be \"{Core.RuleAction.SetOutputType}\", "
+                + $"\"{Core.RuleAction.AddToOutputType}\", or \"{Core.RuleAction.AppendToOutputType}\"."));
         }
 
         if (!action.TryGetProperty("target", out RuleJsonValue target)

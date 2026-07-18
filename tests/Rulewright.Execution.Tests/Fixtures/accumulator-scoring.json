@@ -1,0 +1,35 @@
+{
+  "ruleSet": {
+    "rules": [
+      {
+        "id": "vip",
+        "priority": 10,
+        "condition": { "field": "Customer.IsVip", "operator": "Equals", "value": true },
+        "actions": [
+          { "type": "addToOutput", "target": "Score", "value": 50 },
+          { "type": "appendToOutput", "target": "Reasons", "value": "vip" }
+        ]
+      },
+      {
+        "id": "big-order",
+        "priority": 5,
+        "condition": { "field": "Order.Total", "operator": "GreaterThanOrEqual", "value": 100 },
+        "actions": [
+          { "type": "addToOutput", "target": "Score", "value": { "op": "multiply", "operands": [ { "field": "Order.Total" }, 0.1 ] } },
+          { "type": "appendToOutput", "target": "Reasons", "value": "big-order" }
+        ]
+      }
+    ]
+  },
+  "fact": {
+    "Customer": { "IsVip": true },
+    "Order": { "Total": 120.5 }
+  },
+  "expected": {
+    "firedRules": ["vip", "big-order"],
+    "outputs": {
+      "Score": 62.05,
+      "Reasons": ["vip", "big-order"]
+    }
+  }
+}

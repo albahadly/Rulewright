@@ -61,6 +61,24 @@ public class ComputedActionSerializationTests
     }
 
     [Fact]
+    public void AccumulatorActionTypes_AreValid()
+    {
+        Assert.True(Validate(RuleWithActions("[{\"type\":\"addToOutput\",\"target\":\"S\",\"value\":1}]")).IsValid);
+        Assert.True(Validate(RuleWithActions("[{\"type\":\"appendToOutput\",\"target\":\"R\",\"value\":\"x\"}]")).IsValid);
+        Assert.True(Validate(RuleWithActions(
+            "[{\"type\":\"addToOutput\",\"target\":\"S\",\"value\":{\"op\":\"multiply\",\"operands\":[{\"field\":\"A\"},2]}}]")).IsValid);
+    }
+
+    [Fact]
+    public void UnknownActionType_ErrorsAtTypePointer()
+    {
+        RuleSetValidationResult result = Validate(RuleWithActions(
+            "[{\"type\":\"multiplyOutput\",\"target\":\"S\",\"value\":1}]"));
+        Assert.False(result.IsValid);
+        Assert.Equal("/actions/0/type", result.Errors.Single().Path);
+    }
+
+    [Fact]
     public void MissingValue_IsRejected()
     {
         RuleSetValidationResult result = Validate(RuleWithActions("[{\"type\":\"setOutput\",\"target\":\"D\"}]"));

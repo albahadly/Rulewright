@@ -109,7 +109,7 @@ dotnet add package Rulewright.Json.SystemText
 | **Rule** | `id` + condition tree + actions (+ `priority`, `enabled`, ignored `layout`). |
 | **Condition** | A leaf (`field` / `operator` / `value`) or a group (`AND` / `OR` / `NOT` over children). |
 | **Fact** | The object a rule set is evaluated against: a typed POCO (compiled path) or an `IDictionary<string, object>` (interpreted path). |
-| **Action** | `setOutput` — writes a `value` into the result's outputs; the value is a constant scalar or an expression computed from the fact. |
+| **Action** | Writes a `value` (constant or computed) to the outputs at `target`. `setOutput` replaces, `addToOutput` sums, `appendToOutput` collects into a list. |
 
 ### Operators
 
@@ -174,6 +174,28 @@ cached per fact type just like conditions (constant-only rules keep their pre-ma
 outputs and allocate nothing per firing); field references in expressions are checked against
 typed facts at compile time.
 
+**Action types.** The action `type` decides how the value combines with what fired rules have
+already written to that `target`, applied in priority order across the whole evaluation:
+
+| Type | Effect |
+|---|---|
+| `setOutput` | Replaces the value at `target`. |
+| `addToOutput` | Adds numerically — a running total across fired rules. |
+| `appendToOutput` | Appends to a list at `target` — collected across fired rules. |
+
+```json
+"actions": [
+  { "type": "addToOutput", "target": "RiskScore",
+    "value": { "op": "multiply", "operands": [ { "field": "Order.Total" }, 0.1 ] } },
+  { "type": "appendToOutput", "target": "Reasons", "value": "high-value order" }
+]
+```
+
+The accumulators are **null-tolerant**: a value that resolves to null (and, for `addToOutput`,
+any non-numeric value) contributes nothing rather than wiping the running result — so one stray
+rule can't destroy a total. Each fired rule's own `Outputs` snapshot reflects the result *at
+that rule's firing* (`appendToOutput` copies the list, so earlier snapshots stay frozen).
+
 ## Performance
 
 The benchmark suite (`tests/Rulewright.Benchmarks`, BenchmarkDotNet) measures
@@ -228,9 +250,9 @@ Called out explicitly so expectations are clear:
 - **v1** — core engine: compiled evaluation, interpreter fallback, tracing,
   schema + validator, benchmarks, net48 proof.
 - **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
-  `concat`, `coalesce` over fact fields — shipped) are the backbone; next up a richer
-  action model (`appendOutput`/`addToOutput`) and decision-table authoring. Also on the
-  track: Newtonsoft adapter, function catalog/discovery API, and the
+  `concat`, `coalesce` over fact fields) and accumulating action types
+  (`addToOutput`/`appendToOutput`) have shipped; next up decision-table authoring. Also on
+  the track: Newtonsoft adapter, function catalog/discovery API, and the
   NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
   From v1 on, changes to the `layout` contract or the JSON Schema are treated as

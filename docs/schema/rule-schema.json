@@ -174,13 +174,13 @@
       "type": "object",
       "properties": {
         "type": {
-          "enum": ["setOutput"],
-          "description": "Action kind. 'setOutput' writes a value into the evaluation result's outputs."
+          "enum": ["setOutput", "addToOutput", "appendToOutput"],
+          "description": "How the value combines into the result's outputs at 'target': 'setOutput' replaces, 'addToOutput' adds numerically (a running total across fired rules), 'appendToOutput' appends to a list (collected across fired rules). For the accumulators, a null value contributes nothing."
         },
         "target": {
           "type": "string",
           "minLength": 1,
-          "description": "Output key to set."
+          "description": "Output key the action writes."
         },
         "value": {
           "$ref": "#/$defs/expression",

@@ -34,14 +34,14 @@ internal sealed class RuleEntry
         Rule rule,
         string hash,
         IReadOnlyDictionary<string, object?> outputs,
-        bool hasComputedOutputs,
+        bool hasComplexOutputs,
         Dictionary<ConditionNode, int> nodeIndex,
         int nodeCount)
     {
         Rule = rule;
         Hash = hash;
         Outputs = outputs;
-        HasComputedOutputs = hasComputedOutputs;
+        HasComplexOutputs = hasComplexOutputs;
         NodeIndex = nodeIndex;
         NodeCount = nodeCount;
     }
@@ -52,17 +52,19 @@ internal sealed class RuleEntry
     internal string Hash { get; }
 
     /// <summary>
-    /// The constant outputs this rule produces when it fires, shared and reused across
-    /// evaluations. Populated only when <see cref="HasComputedOutputs"/> is false; when a
-    /// rule has any computed action, outputs are produced per evaluation instead.
+    /// The outputs this rule produces when it fires, shared and reused across evaluations.
+    /// Populated only when <see cref="HasComplexOutputs"/> is false — i.e. every action is a
+    /// constant <c>setOutput</c>; otherwise outputs are applied to the running result per
+    /// evaluation instead.
     /// </summary>
     internal IReadOnlyDictionary<string, object?> Outputs { get; }
 
     /// <summary>
-    /// Whether any action computes its output from the fact (so outputs must be produced
-    /// per evaluation rather than reused from <see cref="Outputs"/>).
+    /// Whether any action is not a constant <c>setOutput</c> (a computed value, or an
+    /// accumulating <c>addToOutput</c>/<c>appendToOutput</c>), so its output must be applied
+    /// to the running result per evaluation rather than reused from <see cref="Outputs"/>.
     /// </summary>
-    internal bool HasComputedOutputs { get; }
+    internal bool HasComplexOutputs { get; }
 
     /// <summary>Pre-order index of every condition node, shared by tracing across execution modes.</summary>
     internal Dictionary<ConditionNode, int> NodeIndex { get; }

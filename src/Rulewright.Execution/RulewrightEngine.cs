@@ -73,23 +73,25 @@ public sealed class RulewrightEngine
             ValidateFunctions(rule, rule.Condition);
 
             var outputs = new Dictionary<string, object?>(StringComparer.Ordinal);
-            bool hasComputedOutputs = false;
+            bool hasComplexOutputs = false;
             foreach (RuleAction action in rule.Actions)
             {
-                if (!string.Equals(action.Type, RuleAction.SetOutputType, StringComparison.Ordinal))
+                if (!string.Equals(action.Type, RuleAction.SetOutputType, StringComparison.Ordinal)
+                    && !string.Equals(action.Type, RuleAction.AddToOutputType, StringComparison.Ordinal)
+                    && !string.Equals(action.Type, RuleAction.AppendToOutputType, StringComparison.Ordinal))
                 {
                     throw new RuleCompilationException(rule.Id, $"unknown action type '{action.Type}'.");
                 }
 
-                if (action.Value is LiteralExpression literal)
+                if (OutputApplier.IsLiteralSet(action))
                 {
-                    outputs[action.Target] = literal.Value;
+                    outputs[action.Target] = ((LiteralExpression)action.Value).Value;
                 }
                 else
                 {
-                    // Fact-dependent outputs are produced per evaluation (compiled per fact
-                    // type, or interpreted for dictionary facts) rather than pre-materialized.
-                    hasComputedOutputs = true;
+                    // Computed or accumulating actions apply to the running result per
+                    // evaluation rather than being pre-materialized here.
+                    hasComplexOutputs = true;
                 }
             }
 
@@ -97,8 +99,8 @@ public sealed class RulewrightEngine
             entries.Add(new RuleEntry(
                 rule,
                 RuleHasher.ComputeHash(rule),
-                hasComputedOutputs ? EmptyOutputs : new ReadOnlyDictionary<string, object?>(outputs),
-                hasComputedOutputs,
+                hasComplexOutputs ? EmptyOutputs : new ReadOnlyDictionary<string, object?>(outputs),
+                hasComplexOutputs,
                 nodeIndex,
                 nodeCount));
         }
@@ -170,9 +172,7 @@ public sealed class RulewrightEngine
                 CompilationMode.Interpreted,
                 (entry, results) => RuleInterpreter.Evaluate(
                     entry.Rule.Condition, boxedFact, _functions, results, entry.NodeIndex),
-                entry => entry.HasComputedOutputs
-                    ? ActionExpressionInterpreter.Produce(entry.Rule.Actions, boxedFact)
-                    : entry.Outputs);
+                (entry, running) => ApplyInterpretedOutputs(entry, boxedFact, running));
         }
 
         return EvaluateCore(
@@ -184,9 +184,60 @@ public sealed class RulewrightEngine
                 CompiledRule<TFact> compiled = GetOrCompile<TFact>(entry);
                 return results is null ? compiled.Predicate(fact) : compiled.TracedPredicate(fact, results);
             },
-            entry => entry.HasComputedOutputs
-                ? GetOrCompile<TFact>(entry).ProduceOutputs!(fact)
-                : entry.Outputs);
+            (entry, running) => ApplyCompiledOutputs<TFact>(entry, fact, running));
+    }
+
+    /// <summary>
+    /// Applies a fired rule's outputs to the running result and returns the rule's own view
+    /// of what it wrote. Rules made purely of constant <c>setOutput</c> actions overwrite
+    /// their shared, pre-materialized outputs; other rules evaluate each action's value and
+    /// apply it (set/add/append) in order via <see cref="OutputApplier"/>.
+    /// </summary>
+    private static IReadOnlyDictionary<string, object?> ApplyInterpretedOutputs(
+        RuleEntry entry, object fact, IDictionary<string, object?> running)
+    {
+        if (!entry.HasComplexOutputs)
+        {
+            foreach (KeyValuePair<string, object?> output in entry.Outputs)
+            {
+                running[output.Key] = output.Value;
+            }
+
+            return entry.Outputs;
+        }
+
+        var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (RuleAction action in entry.Rule.Actions)
+        {
+            object? value = ActionExpressionInterpreter.EvaluateValue(action.Value, fact);
+            OutputApplier.Apply(running, snapshot, action.Type, action.Target, value);
+        }
+
+        return new ReadOnlyDictionary<string, object?>(snapshot);
+    }
+
+    private IReadOnlyDictionary<string, object?> ApplyCompiledOutputs<TFact>(
+        RuleEntry entry, TFact fact, IDictionary<string, object?> running)
+    {
+        if (!entry.HasComplexOutputs)
+        {
+            foreach (KeyValuePair<string, object?> output in entry.Outputs)
+            {
+                running[output.Key] = output.Value;
+            }
+
+            return entry.Outputs;
+        }
+
+        OutputStep<TFact>[] steps = GetOrCompile<TFact>(entry).OutputSteps!;
+        var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (OutputStep<TFact> step in steps)
+        {
+            object? value = step.ValueFactory(fact);
+            OutputApplier.Apply(running, snapshot, step.Type, step.Target, value);
+        }
+
+        return new ReadOnlyDictionary<string, object?>(snapshot);
     }
 
     private RuleEvaluationResult EvaluateCore(
@@ -194,7 +245,7 @@ public sealed class RulewrightEngine
         EvaluationOptions options,
         CompilationMode mode,
         Func<RuleEntry, bool?[]?, bool> evaluateRule,
-        Func<RuleEntry, IReadOnlyDictionary<string, object?>> produceOutputs)
+        Func<RuleEntry, IDictionary<string, object?>, IReadOnlyDictionary<string, object?>> applyOutputs)
     {
         List<RuleTrace>? traceRules = options.EnableTrace
             ? new List<RuleTrace>(loaded.OrderedRules.Length)
@@ -228,12 +279,10 @@ public sealed class RulewrightEngine
 
             if (matched)
             {
-                IReadOnlyDictionary<string, object?> ruleOutputs = produceOutputs(entry);
+                // applyOutputs writes into the running outputs (overwrite, add, or append)
+                // and returns this rule's own view of what it wrote.
+                IReadOnlyDictionary<string, object?> ruleOutputs = applyOutputs(entry, outputs);
                 fired.Add(new FiredRule(entry.Rule.Id, ruleOutputs));
-                foreach (KeyValuePair<string, object?> output in ruleOutputs)
-                {
-                    outputs[output.Key] = output.Value;
-                }
 
                 if (options.StopOnFirstMatch)
                 {

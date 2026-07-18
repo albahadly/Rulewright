@@ -1,0 +1,87 @@
+{
+  "ruleSet": {
+    "decisionTable": {
+      "name": "Loyalty points",
+      "id": "points",
+      "hitPolicy": "collect",
+      "inputs": [
+        {
+          "field": "Order.Total",
+          "operator": "GreaterThanOrEqual"
+        },
+        {
+          "field": "Customer.Tier",
+          "operator": "In"
+        }
+      ],
+      "outputs": [
+        {
+          "target": "Points",
+          "type": "addToOutput"
+        },
+        {
+          "target": "PointReasons",
+          "type": "appendToOutput"
+        }
+      ],
+      "rows": [
+        {
+          "when": [
+            50,
+            null
+          ],
+          "then": [
+            10,
+            "order-over-50"
+          ]
+        },
+        {
+          "when": [
+            100,
+            null
+          ],
+          "then": [
+            20,
+            "order-over-100"
+          ]
+        },
+        {
+          "when": [
+            null,
+            [
+              "gold",
+              "vip"
+            ]
+          ],
+          "then": [
+            50,
+            "premium-member"
+          ]
+        }
+      ]
+    }
+  },
+  "fact": {
+    "Customer": {
+      "Tier": "gold"
+    },
+    "Order": {
+      "Total": 120
+    }
+  },
+  "expected": {
+    "firedRules": [
+      "points-0",
+      "points-1",
+      "points-2"
+    ],
+    "outputs": {
+      "Points": 80.0,
+      "PointReasons": [
+        "order-over-50",
+        "order-over-100",
+        "premium-member"
+      ]
+    }
+  }
+}

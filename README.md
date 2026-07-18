@@ -65,8 +65,8 @@ foreach (FiredRule fired in result.FiredRules)
   paths. A .NET Framework 4.8 sample project builds and runs in CI — the compatibility
   claim is executed, not asserted.
 - **Bring your own JSON library.** Parsing is abstracted behind `IRuleJsonReader`
-  with adapter packages (`Rulewright.Json.SystemText` today, Newtonsoft planned), so
-  the core never forces a JSON dependency on your app.
+  with adapter packages for **System.Text.Json** and **Newtonsoft.Json** (parity-tested
+  against each other), so the core never forces a JSON dependency on your app.
 - **Built for auditability.** Opt-in execution traces record which rules fired and
   which condition nodes passed, failed, or were short-circuited — with **zero
   overhead when disabled** (separate compiled fast path, not a runtime flag check).
@@ -330,7 +330,7 @@ Requires the .NET 8+ SDK. On Windows, the test suite and the
 | `Rulewright.Serialization` | JSON ↔ domain mapping, structural validator (JSON-pointer errors), content hashing. |
 | `Rulewright.Execution` | Expression-tree compiler, interpreter fallback, delegate cache, `RulewrightBuilder` / `RulewrightEngine`. |
 | `Rulewright.Json.SystemText` | `IRuleJsonReader` adapter for System.Text.Json + `JsonElement` fact helpers. |
-| `Rulewright.Json.NewtonsoftJson` | *(scaffold — planned)* Newtonsoft.Json adapter. |
+| `Rulewright.Json.NewtonsoftJson` | `IRuleJsonReader` adapter for Newtonsoft.Json + `JToken` fact helpers. |
 | `Rulewright.Extensions.Functions` | *(scaffold — planned)* function catalog & discovery. |
 
 ## Non-goals for v1
@@ -352,9 +352,9 @@ Called out explicitly so expectations are clear:
 - **v2 (current)** — *"rules do more."* Computed action expressions (arithmetic,
   `concat`, `coalesce` over fact fields), accumulating action types
   (`addToOutput`/`appendToOutput`), a `removeOutput` retract action, first-class `else`
-  actions, decision-table authoring, and a schema discovery catalog (`RuleSchemaCatalog` +
-  `engine.RegisteredFunctions`) have shipped. Also on the track: Newtonsoft adapter and the
-  NRules/RulesEngine benchmark comparison in `docs/benchmarks.md`.
+  actions, decision-table authoring, a schema discovery catalog (`RuleSchemaCatalog` +
+  `engine.RegisteredFunctions`), System.Text.Json **and** Newtonsoft.Json adapters, and a
+  published NRules/RulesEngine benchmark comparison (`docs/benchmarks.md`) have all shipped.
 - **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
   From v1 on, changes to the `layout` contract or the JSON Schema are treated as
   breaking changes.

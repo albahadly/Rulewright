@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rulewright.Serialization\Rulewright.Serialization.csproj" />
     <ProjectReference Include="..\..\src\Rulewright.Json.SystemText\Rulewright.Json.SystemText.csproj" />
+    <ProjectReference Include="..\..\src\Rulewright.Json.NewtonsoftJson\Rulewright.Json.NewtonsoftJson.csproj" />
   </ItemGroup>
 
 </Project>

@@ -3,8 +3,8 @@
 ## Layering
 
 ```
-Rulewright.Json.SystemText ──┐
-Rulewright.Json.Newtonsoft ──┤ (adapters: JSON text → neutral DOM)
+Rulewright.Json.SystemText   ──┐
+Rulewright.Json.NewtonsoftJson ┤ (adapters: JSON text → neutral DOM)
                              ▼
                  Rulewright.Serialization      Rulewright.Core
                  (DOM, parser, validator,  ──► (domain model, results,

@@ -9,21 +9,28 @@ window.rulewrightFlowBuilder = (function(){
   const PORT_ROW_H = 26;
   const BODY_EXTRA_H = 46;
 
-  // portLabels: fixed, named input ports (order matters — buildConditionTree/buildRuleJson
-  // read specific indices by meaning, not just "however many are wired").
-  // dynamicInput + dynamicLabel: AND/OR/NOT groups and Expression nodes grow an extra empty
-  // slot as their existing slots fill up (see addConnection/removeConnection).
+  // Auto-layout geometry (used by layoutAll / importDocument / Tidy).
+  const COL_W = 280;      // horizontal gap between tree columns
+  const ROW_H = 140;      // vertical slot per leaf / action
+  const BAND_GAP = 90;    // vertical gap between two rules' bands
+  const FACT_X = 40;      // the shared Fact Input column
+  const GRID = 12;        // snap-to-grid step (world units)
+
+  // portLabels: fixed, named input ports (order matters — build* reads specific indices by
+  // meaning). dynamicInput + dynamicLabel: AND/OR/NOT groups and Expression nodes grow an extra
+  // empty slot as their existing slots fill up (see addConnection/removeConnection).
   const TYPE_DEFS = {
-    trigger:   { label:"Fact Input",    badge:"▶",   color:"var(--accent-teal)",   tagPrefix:"TRG", hasInput:false, isAction:false },
-    leaf:      { label:"Compare",       badge:"=",   color:"var(--accent-blue)",   tagPrefix:"CMP", hasInput:true,  isAction:false, portLabels:["Field (expr)"] },
-    function:  { label:"Custom Function", badge:"ƒ", color:"var(--accent-blue)",   tagPrefix:"FN",  hasInput:false, isAction:false },
-    and:       { label:"AND Group",     badge:"∧",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"AND" },
-    or:        { label:"OR Group",      badge:"∨",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"OR" },
-    not:       { label:"NOT Group",     badge:"¬",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"NOT", maxInputs:1 },
-    action:    { label:"Action",        badge:"▣",   color:"var(--accent-green)",  tagPrefix:"ACT", hasInput:true,  isAction:true,  portLabels:["Condition","Value (expr)"] },
-    valLiteral:{ label:"Literal",       badge:"\"…\"", color:"var(--accent-purple)", tagPrefix:"LIT", hasInput:false, isAction:false, isValue:true },
-    valField:  { label:"Field Ref",     badge:"{f}", color:"var(--accent-purple)", tagPrefix:"FLD", hasInput:false, isAction:false, isValue:true },
-    valOp:     { label:"Expression",    badge:"ƒx",  color:"var(--accent-purple)", tagPrefix:"EXP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Operand", isValue:true }
+    trigger:   { label:"Fact Input",      badge:"▶",   color:"var(--accent-teal)",   tagPrefix:"TRG", hasInput:false, isAction:false, noOutput:true },
+    rule:      { label:"Rule",            badge:"§",   color:"var(--accent-gold)",   tagPrefix:"RULE",hasInput:true,  isAction:false, isRule:true, portLabels:["Condition"] },
+    leaf:      { label:"Compare",         badge:"=",   color:"var(--accent-blue)",   tagPrefix:"CMP", hasInput:true,  isAction:false, portLabels:["Field (expr)"] },
+    function:  { label:"Custom Function", badge:"ƒ",   color:"var(--accent-blue)",   tagPrefix:"FN",  hasInput:false, isAction:false },
+    and:       { label:"AND Group",       badge:"∧",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"AND" },
+    or:        { label:"OR Group",        badge:"∨",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"OR" },
+    not:       { label:"NOT Group",       badge:"¬",   color:"var(--accent-copper)", tagPrefix:"GRP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Input", operator:"NOT", maxInputs:1 },
+    action:    { label:"Action",          badge:"▣",   color:"var(--accent-green)",  tagPrefix:"ACT", hasInput:true,  isAction:true,  portLabels:["Rule","Value (expr)"] },
+    valLiteral:{ label:"Literal",         badge:"\"…\"",color:"var(--accent-purple)", tagPrefix:"LIT", hasInput:false, isAction:false, isValue:true },
+    valField:  { label:"Field Ref",       badge:"{f}", color:"var(--accent-purple)", tagPrefix:"FLD", hasInput:false, isAction:false, isValue:true },
+    valOp:     { label:"Expression",      badge:"ƒx",  color:"var(--accent-purple)", tagPrefix:"EXP", hasInput:true,  isAction:false, dynamicInput:true, dynamicLabel:"Operand", isValue:true }
   };
 
   const OPERATORS = [
@@ -64,6 +71,7 @@ window.rulewrightFlowBuilder = (function(){
      Utility
      ============================================================ */
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function snap(v){ return Math.round(v/GRID)*GRID; }
 
   function showToast(msg){
     toastEl.textContent = msg;
@@ -84,6 +92,35 @@ window.rulewrightFlowBuilder = (function(){
     document.getElementById('zoomLabel').textContent = Math.round(state.scale*100) + "%";
   }
 
+  // Frame every node in the viewport. Essential after import/tidy: condition trees lay out to the
+  // LEFT of their rule (x − COL_W per level), so deep trees run into negative X.
+  function fitToView(){
+    if(state.nodes.size === 0){ state.scale = 1; state.panX = 60; state.panY = 60; applyWorldTransform(); return; }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    state.nodes.forEach(n=>{
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + NODE_W); maxY = Math.max(maxY, n.y + nodeHeight(n));
+    });
+    const pad = 70;
+    const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+    const gw = (maxX - minX) + pad*2, gh = (maxY - minY) + pad*2;
+    state.scale = clamp(Math.min(w/gw, h/gh), 0.3, 1.25);
+    const cx = (minX + maxX)/2, cy = (minY + maxY)/2;
+    state.panX = w/2 - cx*state.scale;
+    state.panY = h/2 - cy*state.scale;
+    applyWorldTransform();
+  }
+
+  function focusNode(id){
+    const n = state.nodes.get(id);
+    if(!n) return;
+    const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+    const cx = n.x + NODE_W/2, cy = n.y + nodeHeight(n)/2;
+    state.panX = w/2 - cx*state.scale;
+    state.panY = h/2 - cy*state.scale;
+    applyWorldTransform();
+  }
+
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -96,6 +133,13 @@ window.rulewrightFlowBuilder = (function(){
     const key = def.tagPrefix;
     state.typeCounters[key] = (state.typeCounters[key]||0) + 1;
     return key + "-" + String(state.typeCounters[key]).padStart(2,"0");
+  }
+
+  function uniqueRuleId(){
+    const existing = new Set([...state.nodes.values()].filter(n=>n.type==='rule' && n.config.id).map(n=>n.config.id));
+    let i = 1, id;
+    do { id = 'rule-' + i++; } while(existing.has(id));
+    return id;
   }
 
   function createNode(type, x, y){
@@ -112,14 +156,18 @@ window.rulewrightFlowBuilder = (function(){
       inputs: new Array(inputCount).fill(null),
       config: defaultConfig(type),
       el: null,
-      _test: undefined
+      _test: undefined,
+      _fired: null,
+      _skipped: false
     };
+    if(type === 'rule' && !node.config.id) node.config.id = uniqueRuleId();
     state.nodes.set(id, node);
     renderNode(node);
     return node;
   }
 
   function defaultConfig(type){
+    if(type === 'rule') return { id:"", description:"", priority:0, enabled:true };
     if(type === 'leaf') return { field:"", operator:"GreaterThan", value:"" };
     if(type === 'function') return { name:"", field:"", value:"" };
     if(type === 'action') return { type:"setOutput", branch:"then", target:"", value:"" };
@@ -160,6 +208,7 @@ window.rulewrightFlowBuilder = (function(){
       el.addEventListener('mousedown', onNodeMouseDown);
       el.addEventListener('click', (e)=>{ e.stopPropagation(); selectNode(node.id); });
     }
+    el.className = 'node' + (def.isRule ? ' node-rule' : '');
     el.style.transform = `translate(${node.x}px, ${node.y}px)`;
     el.style.height = nodeHeight(node) + 'px';
     el.classList.toggle('selected', state.selectedNode === node.id);
@@ -186,7 +235,7 @@ window.rulewrightFlowBuilder = (function(){
       });
       html += `</div>`;
     }
-    if(!def.isAction){
+    if(!def.isAction && !def.noOutput){
       html += `<div class="port port-out" data-node="${node.id}" style="top:${outputPortY(node)}px;"></div>`;
     }
 
@@ -197,7 +246,7 @@ window.rulewrightFlowBuilder = (function(){
       e.stopPropagation();
       removeNode(node.id);
     });
-    if(!def.isAction){
+    if(!def.isAction && !def.noOutput){
       const outPort = el.querySelector('.port-out');
       outPort.addEventListener('mousedown', (e)=>{ e.stopPropagation(); startWireDrag(node.id, e); });
     }
@@ -210,7 +259,14 @@ window.rulewrightFlowBuilder = (function(){
     const t = node.type;
     if(t === 'trigger'){
       const paths = collectFactPaths(state.sampleFact);
-      return paths.slice(0,4).map(p=>`<span class="pill">${escapeHtml(p)}</span>`).join(' ');
+      return paths.slice(0,4).map(p=>`<span class="pill">${escapeHtml(p)}</span>`).join(' ') || `<span class="placeholder">Sample fact</span>`;
+    }
+    if(t === 'rule'){
+      const id = node.config.id || '(unset id)';
+      const bits = [`P${Number(node.config.priority)||0}`];
+      if(node.config.enabled === false) bits.push('disabled');
+      const badge = node._fired ? `<span class="rule-fired ${node._fired}">${node._fired}</span>` : '';
+      return `<div class="rule-summary"><span class="rule-id">${escapeHtml(id)}</span><span class="rule-meta">${bits.join(' · ')}</span>${badge}</div>`;
     }
     if(t === 'leaf'){
       const opSym = { GreaterThan:'>',GreaterThanOrEqual:'≥',LessThan:'<',LessThanOrEqual:'≤',Equals:'=',NotEquals:'≠' }[node.config.operator] || node.config.operator;
@@ -266,7 +322,7 @@ window.rulewrightFlowBuilder = (function(){
     [...state.connections.values()].forEach(c=>{
       if(c.from === id || c.to === id) removeConnection(c.id, true);
     });
-    node.el.remove();
+    if(node.el) node.el.remove();
     state.nodes.delete(id);
     if(state.selectedNode === id){ state.selectedNode = null; renderInspector(); }
     renderWires();
@@ -288,6 +344,32 @@ window.rulewrightFlowBuilder = (function(){
   /* ============================================================
      Connections
      ============================================================ */
+  // What a node emits from its output port, and what each input port expects — so a wire that
+  // couldn't ever produce valid JSON is rejected up front with a clear message instead of being
+  // silently dropped at build time.
+  function nodeOutputKind(node){
+    if(!node) return null;
+    const t = node.type;
+    if(t === 'rule') return 'rule';
+    if(t === 'valLiteral' || t === 'valField' || t === 'valOp') return 'value';
+    if(t === 'leaf' || t === 'function' || t === 'and' || t === 'or' || t === 'not') return 'condition';
+    return null; // trigger — reference-only, has no output port
+  }
+  function inputPortKind(node, idx){
+    const t = node.type;
+    if(t === 'rule') return 'condition';                // the Condition pin
+    if(t === 'leaf') return 'value';                    // the Field (expr) pin
+    if(t === 'action') return idx === 0 ? 'rule' : 'value';
+    if(t === 'and' || t === 'or' || t === 'not') return 'condition';
+    if(t === 'valOp') return 'value';                   // operand pins
+    return null;
+  }
+  const KIND_LABEL = {
+    condition: "a condition (Compare, Custom Function, or a logic group)",
+    value: "a computed value (Literal, Field Ref, or Expression)",
+    rule: "a Rule node"
+  };
+
   function isDescendant(candidateAncestorId, nodeId, seen){
     seen = seen || new Set();
     if(seen.has(nodeId)) return false;
@@ -310,6 +392,13 @@ window.rulewrightFlowBuilder = (function(){
     if(!toNode) return null;
     if(toNode.inputs[toIdx]){ showToast("That input is already connected."); return null; }
     if(isDescendant(toId, fromId)){ showToast("That connection would create a loop."); return null; }
+
+    const fromKind = nodeOutputKind(state.nodes.get(fromId));
+    const expected = inputPortKind(toNode, toIdx);
+    if(fromKind && expected && fromKind !== expected){
+      showToast(`That pin expects ${KIND_LABEL[expected]} — not ${KIND_LABEL[fromKind]}.`);
+      return null;
+    }
 
     const id = "c" + (state.nextConnId++);
     const conn = { id, from: fromId, to: toId, toIdx };
@@ -358,10 +447,31 @@ window.rulewrightFlowBuilder = (function(){
     return { x: node.x, y: node.y + inputPortY(node, idx) };
   }
 
-  function orthogonalPath(x1,y1,x2,y2){
-    const midX = x2 - x1 > 60 ? (x1+x2)/2 : x1 + 40;
-    const midX2 = x2 - x1 > 60 ? (x1+x2)/2 : x2 - 40;
-    return { d:`M ${x1} ${y1} L ${midX} ${y1} L ${midX2} ${y2} L ${x2} ${y2}`, bends:[[midX,y1],[midX2,y2]] };
+  // An orthogonal (right-angle) route with softly rounded corners — the Azure-Logic-Apps look.
+  function orthPoints(x1,y1,x2,y2){
+    if(x2 - x1 > 60){
+      const mid = (x1 + x2)/2;
+      return [[x1,y1],[mid,y1],[mid,y2],[x2,y2]];
+    }
+    // target is left of / near the source: loop out and back
+    const outX = x1 + 40, inX = x2 - 40, midY = (y1 + y2)/2;
+    return [[x1,y1],[outX,y1],[outX,midY],[inX,midY],[inX,y2],[x2,y2]];
+  }
+  function roundedPath(pts, r){
+    if(pts.length < 3) return `M ${pts.map(p=>p.join(' ')).join(' L ')}`;
+    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    for(let i=1;i<pts.length-1;i++){
+      const p0=pts[i-1], p1=pts[i], p2=pts[i+1];
+      const l1=Math.hypot(p1[0]-p0[0],p1[1]-p0[1]) || 1;
+      const l2=Math.hypot(p2[0]-p1[0],p2[1]-p1[1]) || 1;
+      const d1=Math.min(r, l1/2), d2=Math.min(r, l2/2);
+      const a=[p1[0]+(p0[0]-p1[0])/l1*d1, p1[1]+(p0[1]-p1[1])/l1*d1];
+      const b=[p1[0]+(p2[0]-p1[0])/l2*d2, p1[1]+(p2[1]-p1[1])/l2*d2];
+      d += ` L ${a[0]} ${a[1]} Q ${p1[0]} ${p1[1]} ${b[0]} ${b[1]}`;
+    }
+    const last = pts[pts.length-1];
+    d += ` L ${last[0]} ${last[1]}`;
+    return d;
   }
 
   function renderWires(){
@@ -369,7 +479,8 @@ window.rulewrightFlowBuilder = (function(){
     state.connections.forEach(conn=>{
       const from = portWorldPos(conn.from, true, 0);
       const to = portWorldPos(conn.to, false, conn.toIdx);
-      const path = orthogonalPath(from.x, from.y, to.x, to.y);
+      const pts = orthPoints(from.x, from.y, to.x, to.y);
+      const d = roundedPath(pts, 12);
       const toNode = state.nodes.get(conn.to);
       const fromNode = state.nodes.get(conn.from);
       let cls = 'wire-path';
@@ -377,28 +488,27 @@ window.rulewrightFlowBuilder = (function(){
       if(fromNode && fromNode._test === true && toNode && toNode._test !== false) cls += ' pass';
       else if(fromNode && fromNode._test === false) cls += ' fail';
 
-      svgContent += `<path class="${cls}" d="${path.d}" data-conn="${conn.id}"></path>`;
-      path.bends.forEach(b=>{
-        svgContent += `<circle class="via-dot ${cls.includes('pass')?'pass':cls.includes('fail')?'fail':''}" cx="${b[0]}" cy="${b[1]}" r="3"></circle>`;
-      });
-      svgContent += `<path d="${path.d}" fill="none" stroke="transparent" stroke-width="14" style="pointer-events:all;cursor:pointer;" data-conn-hit="${conn.id}"></path>`;
-      const midB = path.bends[0];
+      svgContent += `<path class="${cls}" d="${d}"></path>`;
+      svgContent += `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" style="pointer-events:all;cursor:pointer;" data-conn-hit="${conn.id}"></path>`;
+      const midX = (from.x + to.x)/2, midY = (from.y + to.y)/2;
       svgContent += `<g class="wire-del-group" data-conn-del="${conn.id}" style="pointer-events:all;cursor:pointer;">
-        <circle class="wire-del" cx="${midB[0]}" cy="${(from.y+to.y)/2}" r="7"></circle>
-        <path class="wire-del-x" d="M ${midB[0]-3} ${(from.y+to.y)/2-3} L ${midB[0]+3} ${(from.y+to.y)/2+3} M ${midB[0]+3} ${(from.y+to.y)/2-3} L ${midB[0]-3} ${(from.y+to.y)/2+3}"></path>
+        <circle class="wire-del" cx="${midX}" cy="${midY}" r="7"></circle>
+        <path class="wire-del-x" d="M ${midX-3} ${midY-3} L ${midX+3} ${midY+3} M ${midX+3} ${midY-3} L ${midX-3} ${midY+3}"></path>
       </g>`;
     });
 
     if(state.pendingWire){
       const from = portWorldPos(state.pendingWire.fromNode, true, 0);
-      const path = orthogonalPath(from.x, from.y, state.pendingWire.x, state.pendingWire.y);
-      svgContent += `<path class="wire-path hot" stroke-dasharray="5 3" d="${path.d}"></path>`;
+      const pts = orthPoints(from.x, from.y, state.pendingWire.x, state.pendingWire.y);
+      svgContent += `<path class="wire-path hot" stroke-dasharray="5 3" d="${roundedPath(pts,12)}"></path>`;
     }
 
     wiresSvg.innerHTML = svgContent;
 
     let maxX = 400, maxY = 400;
     state.nodes.forEach(n=>{ maxX = Math.max(maxX, n.x + NODE_W + 200); maxY = Math.max(maxY, n.y + nodeHeight(n) + 200); });
+    let minX = 0, minY = 0;
+    state.nodes.forEach(n=>{ minX = Math.min(minX, n.x - 200); minY = Math.min(minY, n.y - 200); });
     wiresSvg.setAttribute('width', maxX);
     wiresSvg.setAttribute('height', maxY);
     world.style.width = maxX + 'px';
@@ -455,22 +565,30 @@ window.rulewrightFlowBuilder = (function(){
     if(node.type === 'trigger'){
       html += `<div class="field"><label>Sample fact (used for Test rule)</label>
         <textarea id="factEditor" style="min-height:130px;">${escapeHtml(JSON.stringify(state.sampleFact,null,2))}</textarea></div>
-        <div style="font-size:10.5px;color:var(--text-faint);">Paths available: ${collectFactPaths(state.sampleFact).map(p=>'<code>'+p+'</code>').join(', ')}</div>`;
+        <div class="insp-note">Paths available: ${collectFactPaths(state.sampleFact).map(p=>'<code>'+p+'</code>').join(', ')}</div>`;
+    } else if(node.type === 'rule'){
+      html += `<div class="field"><label>Rule ID</label><input type="text" id="ruleCfgId" placeholder="vip-discount" value="${escapeHtml(node.config.id)}"></div>
+        <div class="field"><label>Description</label><input type="text" id="ruleCfgDesc" placeholder="VIP customers get 10% off" value="${escapeHtml(node.config.description)}"></div>
+        <div class="field-row">
+          <div class="field"><label>Priority</label><input type="number" id="ruleCfgPriority" value="${Number(node.config.priority)||0}"></div>
+          <div class="field" style="flex:0 0 auto;padding-top:22px;"><div class="checkbox-row"><input type="checkbox" id="ruleCfgEnabled" ${node.config.enabled!==false?'checked':''}> Enabled</div></div>
+        </div>
+        <div class="insp-note">Wire a condition into the <strong>Condition</strong> pin, and one or more Action nodes to this rule's output. Higher priority evaluates first and wins output collisions.</div>`;
     } else if(node.type === 'leaf'){
       const fieldExprWired = !!node.inputs[0];
       html += `<div class="field"><label>Field path</label>
         <input type="text" id="cfgField" placeholder="Customer.Age" value="${escapeHtml(node.config.field)}" ${fieldExprWired?'disabled':''}></div>`;
       if(fieldExprWired){
-        html += `<div style="font-size:10.5px;color:var(--text-faint);margin:-6px 0 11px;">Using the wired <strong>Field (expr)</strong> computed value instead — disconnect that pin to type a plain field path.</div>`;
+        html += `<div class="insp-note">Using the wired <strong>Field (expr)</strong> computed value instead — disconnect that pin to type a plain field path.</div>`;
       }
       html += `<div class="field"><label>Operator</label><select id="cfgOperator">${OPERATORS.map(o=>`<option value="${o}" ${o===node.config.operator?'selected':''}>${o}</option>`).join('')}</select></div>
         <div class="field" id="valueFieldWrap" style="${['IsNull','IsNotNull'].includes(node.config.operator)?'display:none;':''}"><label>Value (constant)</label><input type="text" id="cfgValue" placeholder='18 or true or ["a","b"]' value="${escapeHtml(node.config.value)}"></div>
-        <div style="font-size:10.5px;color:var(--text-faint);">A condition's comparison value must be a constant — only its left-hand side can be a computed expression (wire into the Field (expr) pin).</div>`;
+        <div class="insp-note">A condition's comparison value must be a constant — only its left-hand side can be a computed expression (wire into the Field (expr) pin).</div>`;
     } else if(node.type === 'function'){
       html += `<div class="field"><label>Function name</label><input type="text" id="cfgName" placeholder="IsBusinessDay" value="${escapeHtml(node.config.name)}"></div>
         <div class="field"><label>Field path (optional)</label><input type="text" id="cfgField" placeholder="Customer.Email" value="${escapeHtml(node.config.field)}"></div>
         <div class="field"><label>Value (optional, constant)</label><input type="text" id="cfgValue" placeholder="[10, 20]" value="${escapeHtml(node.config.value)}"></div>
-        <div style="font-size:10.5px;color:var(--text-faint);">Registered via <code>IRuleFunction</code> on the host application. The built-in Rulewright.Extensions.Functions catalog is registered for Test rule.</div>`;
+        <div class="insp-note">Registered via <code>IRuleFunction</code> on the host application. The built-in Rulewright.Extensions.Functions catalog is registered for Test rule.</div>`;
     } else if(node.type === 'action'){
       const valueWired = !!node.inputs[1];
       html += `<div class="field"><label>Action type</label><select id="cfgType">${ACTION_TYPES.map(t=>`<option value="${t}" ${t===node.config.type?'selected':''}>${t}</option>`).join('')}</select></div>
@@ -482,11 +600,12 @@ window.rulewrightFlowBuilder = (function(){
       if(node.config.type !== 'removeOutput'){
         html += `<div class="field" id="valueFieldWrap"><label>Value (constant)</label><input type="text" id="cfgValue" placeholder="10" value="${escapeHtml(node.config.value)}" ${valueWired?'disabled':''}></div>`;
         if(valueWired){
-          html += `<div style="font-size:10.5px;color:var(--text-faint);margin:-6px 0 11px;">Using the wired <strong>Value (expr)</strong> computed value instead — disconnect that pin to type a constant.</div>`;
+          html += `<div class="insp-note">Using the wired <strong>Value (expr)</strong> computed value instead — disconnect that pin to type a constant.</div>`;
         }
       } else {
-        html += `<div style="font-size:10.5px;color:var(--text-faint);">removeOutput takes no value — it just deletes the target key.</div>`;
+        html += `<div class="insp-note">removeOutput takes no value — it just deletes the target key.</div>`;
       }
+      html += `<div class="insp-note">Wire this action's <strong>Rule</strong> pin to a Rule node to attach it.</div>`;
     } else if(node.type === 'valLiteral'){
       html += `<div class="field"><label>Value (JSON)</label><input type="text" id="cfgValue" placeholder='10 or "gold" or true' value="${escapeHtml(node.config.value)}"></div>`;
     } else if(node.type === 'valField'){
@@ -494,10 +613,7 @@ window.rulewrightFlowBuilder = (function(){
     } else if(node.type === 'valOp'){
       const arity = EXPR_ARITY[node.config.operator];
       html += `<div class="field"><label>Operator</label><select id="cfgOperator">${EXPR_OPERATORS.map(o=>`<option value="${o}" ${o===node.config.operator?'selected':''}>${o}</option>`).join('')}</select></div>
-        <div style="font-size:10.5px;color:var(--text-faint);">${arity ? `Takes exactly ${arity.min} operand${arity.min===1?'':'s'}.` : 'Takes two or more operands.'} Wire Literal/Field Ref/Expression nodes into the operand pins below.</div>`;
-    } else {
-      html += `<div style="font-size:11px;color:var(--text-muted);line-height:1.6;">${def.label} combines every connected input.
-        Drag a wire into the empty slot below the last input to add another branch.</div>`;
+        <div class="insp-note">${arity ? `Takes exactly ${arity.min} operand${arity.min===1?'':'s'}.` : 'Takes two or more operands.'} Wire Literal/Field Ref/Expression nodes into the operand pins below.</div>`;
     }
 
     body.innerHTML = html;
@@ -510,6 +626,12 @@ window.rulewrightFlowBuilder = (function(){
           showToast("Sample fact updated.");
         }catch(err){ showToast("Invalid JSON — fact not updated."); }
       });
+    }
+    if(node.type === 'rule'){
+      document.getElementById('ruleCfgId').addEventListener('input', (e)=>{ node.config.id=e.target.value; renderNode(node); regenerateJson(); });
+      document.getElementById('ruleCfgDesc').addEventListener('input', (e)=>{ node.config.description=e.target.value; regenerateJson(); });
+      document.getElementById('ruleCfgPriority').addEventListener('input', (e)=>{ node.config.priority=e.target.value; renderNode(node); regenerateJson(); });
+      document.getElementById('ruleCfgEnabled').addEventListener('change', (e)=>{ node.config.enabled=e.target.checked; renderNode(node); regenerateJson(); });
     }
     if(node.type === 'leaf'){
       const fEl = document.getElementById('cfgField');
@@ -562,7 +684,7 @@ window.rulewrightFlowBuilder = (function(){
     const id = nodeEl.dataset.id;
     const node = state.nodes.get(id);
     const startWorld = screenToWorld(e.clientX, e.clientY);
-    state.dragNode = { id, offsetX: node.x - startWorld.x, offsetY: node.y - startWorld.y };
+    state.dragNode = { id, offsetX: node.x - startWorld.x, offsetY: node.y - startWorld.y, moved:false };
     selectNode(id);
     e.stopPropagation();
   }
@@ -580,6 +702,7 @@ window.rulewrightFlowBuilder = (function(){
         const node = state.nodes.get(state.dragNode.id);
         node.x = w.x + state.dragNode.offsetX;
         node.y = w.y + state.dragNode.offsetY;
+        state.dragNode.moved = true;
         renderNode(node);
         renderWires();
       } else if(state.panDrag){
@@ -595,6 +718,10 @@ window.rulewrightFlowBuilder = (function(){
     });
 
     window.addEventListener('mouseup', ()=>{
+      if(state.dragNode && state.dragNode.moved){
+        const node = state.nodes.get(state.dragNode.id);
+        if(node){ node.x = snap(node.x); node.y = snap(node.y); renderNode(node); renderWires(); }
+      }
       state.dragNode = null;
       state.panDrag = null;
       if(state.pendingWire){
@@ -608,21 +735,19 @@ window.rulewrightFlowBuilder = (function(){
       const rect = canvasWrap.getBoundingClientRect();
       const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
       const wx = (cx - state.panX)/state.scale, wy = (cy - state.panY)/state.scale;
-      state.scale = clamp(state.scale * (e.deltaY < 0 ? 1.08 : 0.92), 0.35, 2);
+      state.scale = clamp(state.scale * (e.deltaY < 0 ? 1.08 : 0.92), 0.3, 2);
       state.panX = cx - wx*state.scale;
       state.panY = cy - wy*state.scale;
       applyWorldTransform();
     }, { passive:false });
 
     document.getElementById('zoomIn').addEventListener('click', ()=>{
-      state.scale = clamp(state.scale*1.15, 0.35, 2); applyWorldTransform();
+      state.scale = clamp(state.scale*1.15, 0.3, 2); applyWorldTransform();
     });
     document.getElementById('zoomOut').addEventListener('click', ()=>{
-      state.scale = clamp(state.scale*0.87, 0.35, 2); applyWorldTransform();
+      state.scale = clamp(state.scale*0.87, 0.3, 2); applyWorldTransform();
     });
-    document.getElementById('zoomReset').addEventListener('click', ()=>{
-      state.scale = 1; state.panX = 60; state.panY = 60; applyWorldTransform();
-    });
+    document.getElementById('zoomReset').addEventListener('click', fitToView);
 
     window.addEventListener('keydown', (e)=>{
       if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
@@ -655,7 +780,8 @@ window.rulewrightFlowBuilder = (function(){
       });
       item.addEventListener('dblclick', ()=>{
         const w = screenToWorld(canvasWrap.clientWidth/2 + Math.random()*40, canvasWrap.clientHeight/2 + Math.random()*40);
-        createNode(item.dataset.type, w.x, w.y);
+        const n = createNode(item.dataset.type, snap(w.x), snap(w.y));
+        selectNode(n.id);
         renderWires();
         regenerateJson();
       });
@@ -666,7 +792,8 @@ window.rulewrightFlowBuilder = (function(){
       const type = e.dataTransfer.getData('text/plain');
       if(!type || !TYPE_DEFS[type]) return;
       const w = screenToWorld(e.clientX, e.clientY);
-      createNode(type, w.x - NODE_W/2, w.y - 20);
+      const n = createNode(type, snap(w.x - NODE_W/2), snap(w.y - 20));
+      selectNode(n.id);
       renderWires();
       regenerateJson();
     });
@@ -688,11 +815,9 @@ window.rulewrightFlowBuilder = (function(){
     return String(raw); // preserve meaningful leading/trailing whitespace (e.g. "Thanks " in a concat)
   }
 
-  // A computed-value node tree (Literal/Field Ref/Expression) -> the JSON schema's value-
-  // expression shape ({literal}/{field}/{op,operands}). Used for an Action's Value (expr) pin
-  // and a Compare's Field (expr) pin — the ONLY two places the schema allows a computed value
-  // (a condition leaf's comparison `value` must stay a constant; RuleSetValidator rejects an
-  // object there).
+  // A computed-value node tree (Literal/Field Ref/Expression) -> the schema's value-expression
+  // shape ({literal}/{field}/{op,operands}). Used for an Action's Value (expr) pin and a
+  // Compare's Field (expr) pin — the only two places the schema allows a computed value.
   function buildValueExpressionTree(nodeId, warnings, seen){
     seen = seen || new Set();
     const node = state.nodes.get(nodeId);
@@ -724,9 +849,8 @@ window.rulewrightFlowBuilder = (function(){
   }
 
   // Builds both the JSON-schema condition object AND a parallel "id tree" of the same shape
-  // (node id in place of the JSON body) so a later trace result — which mirrors this exact
-  // shape (see Rulewright.Execution.ConditionTraceBuilder) — can be zipped against it without
-  // any string-matching heuristics.
+  // (node id in place of the JSON body) so a later trace result — which mirrors this exact shape
+  // (see Rulewright.Execution.ConditionTraceBuilder) — can be zipped against it positionally.
   function buildConditionTree(nodeId, warnings, seen){
     seen = seen || new Set();
     const node = state.nodes.get(nodeId);
@@ -777,63 +901,92 @@ window.rulewrightFlowBuilder = (function(){
     return null;
   }
 
-  function buildRuleJson(){
+  function actionsOf(ruleNode){
+    return [...state.nodes.values()].filter(n=>{
+      if(n.type !== 'action') return false;
+      const c = n.inputs[0] && state.connections.get(n.inputs[0]);
+      return c && c.from === ruleNode.id;
+    });
+  }
+
+  // Assemble every Rule node on the canvas into a rule (or a { name, rules[] } set).
+  function buildRuleSet(){
     const warnings = [];
+    const ruleNodes = [...state.nodes.values()].filter(n=>n.type==='rule');
     const actionNodes = [...state.nodes.values()].filter(n=>n.type==='action');
-    if(actionNodes.length === 0){
-      warnings.push("No Action is connected — add one to complete the rule.");
+
+    if(ruleNodes.length === 0){
+      warnings.push("No Rule node on the canvas — add a Rule node, then wire a condition and actions into it.");
     }
 
-    let conditionBuilt = null;
-    const rootSources = new Set();
-    actionNodes.forEach(a=>{
-      const connId = a.inputs[0];
-      if(!connId){ warnings.push(`${a.tag}: not connected to a condition`); return; }
-      const conn = state.connections.get(connId);
-      rootSources.add(conn.from);
-    });
-    if(rootSources.size > 1){
-      warnings.push("Multiple action nodes trace back to different condition branches. Only the first branch is used below — connect every action to the same condition node for one rule.");
-    }
-    const rootId = [...rootSources][0];
-    if(rootId){ conditionBuilt = buildConditionTree(rootId, warnings); }
-    if(rootId && !conditionBuilt){ warnings.push("The connected condition graph is incomplete."); }
+    const attachedActionIds = new Set();
+    const units = ruleNodes.map((rn, ri)=>{
+      const cfg = rn.config;
+      const label = cfg.id || rn.tag;
 
-    const actionIds = [];
-    const actions = [];
-    const elseActions = [];
-    actionNodes.filter(a=>a.inputs[0]).forEach(a=>{
-      actionIds.push(a.id);
-      if(!a.config.target) warnings.push(`${a.tag}: missing output target`);
-      const entry = { type: a.config.type || 'setOutput', target: a.config.target||"" };
-      if(entry.type !== 'removeOutput'){
-        const valueExprConn = a.inputs[1];
-        if(valueExprConn){
-          const conn = state.connections.get(valueExprConn);
-          const expr = buildValueExpressionTree(conn.from, warnings, new Set());
-          entry.value = expr !== null ? expr : parseValue(a.config.value);
-        } else {
-          entry.value = parseValue(a.config.value);
-        }
+      const condConn = rn.inputs[0] && state.connections.get(rn.inputs[0]);
+      let condBuilt = null;
+      if(condConn){
+        condBuilt = buildConditionTree(condConn.from, warnings);
+        if(!condBuilt) warnings.push(`${label}: the wired condition is incomplete.`);
+      } else {
+        warnings.push(`${label}: no condition wired into the Rule node.`);
       }
-      (a.config.branch === 'else' ? elseActions : actions).push(entry);
+
+      const myActions = actionsOf(rn);
+      const actions = [], elseActions = [], thenIds = [], elseIds = [];
+      myActions.forEach(a=>{
+        attachedActionIds.add(a.id);
+        if(!a.config.target) warnings.push(`${a.tag}: missing output target`);
+        const entry = { type: a.config.type || 'setOutput', target: a.config.target || "" };
+        if(entry.type !== 'removeOutput'){
+          const valueExprConn = a.inputs[1];
+          if(valueExprConn){
+            const conn = state.connections.get(valueExprConn);
+            const expr = buildValueExpressionTree(conn.from, warnings, new Set());
+            entry.value = expr !== null ? expr : parseValue(a.config.value);
+          } else {
+            entry.value = parseValue(a.config.value);
+          }
+        }
+        if(a.config.branch === 'else'){ elseActions.push(entry); elseIds.push(a.id); }
+        else { actions.push(entry); thenIds.push(a.id); }
+      });
+      if(myActions.length === 0) warnings.push(`${label}: no actions attached to this rule.`);
+
+      const rule = {
+        id: cfg.id || `rule-${ri+1}`,
+        description: cfg.description || undefined,
+        priority: Number(cfg.priority) || 0,
+        enabled: cfg.enabled !== false,
+        condition: condBuilt ? condBuilt.json : { field:"", operator:"IsNotNull" },
+        actions
+      };
+      if(elseActions.length > 0){ rule.else = elseActions; }
+
+      return { ruleNodeId: rn.id, ruleId: rule.id, rule, idTree: condBuilt ? condBuilt.idTree : null, thenIds, elseIds };
     });
 
-    const ruleIdEl = document.getElementById('ruleId');
-    const rule = {
-      id: (ruleIdEl && ruleIdEl.value) || "untitled-rule",
-      description: (document.getElementById('ruleDescription')||{}).value || undefined,
-      priority: Number((document.getElementById('rulePriority')||{}).value) || 0,
-      enabled: document.getElementById('ruleEnabled') ? document.getElementById('ruleEnabled').checked : true,
-      condition: conditionBuilt ? conditionBuilt.json : { field:"", operator:"IsNotNull" },
-      actions
-    };
-    if(elseActions.length > 0){ rule.else = elseActions; }
-    if(!conditionBuilt){
-      warnings.push("No condition is connected to any action — the rule can't be evaluated yet.");
+    // actions not attached to any rule
+    actionNodes.forEach(a=>{ if(!attachedActionIds.has(a.id)) warnings.push(`${a.tag}: not attached to a Rule node.`); });
+
+    // duplicate rule ids
+    const idCounts = {};
+    units.forEach(u=>{ idCounts[u.ruleId] = (idCounts[u.ruleId]||0)+1; });
+    Object.keys(idCounts).forEach(id=>{ if(idCounts[id] > 1) warnings.push(`Duplicate rule id "${id}" (${idCounts[id]}×) — rule ids must be unique within a set.`); });
+
+    const setName = (document.getElementById('ruleSetName')||{}).value || "";
+    let doc;
+    if(units.length === 0){
+      doc = { id:"untitled-rule", condition:{ field:"", operator:"IsNotNull" }, actions:[] };
+    } else if(units.length === 1){
+      doc = units[0].rule;
+    } else {
+      const ordered = [...units].sort((a,b)=> (b.rule.priority - a.rule.priority));
+      doc = { name: setName || "rule-set", rules: ordered.map(u=>u.rule) };
     }
 
-    return { rule, warnings, idTree: conditionBuilt ? conditionBuilt.idTree : null, actionIds };
+    return { doc, warnings, units, multi: units.length > 1 };
   }
 
   /* ============================================================
@@ -862,9 +1015,10 @@ window.rulewrightFlowBuilder = (function(){
   }
 
   function regenerateJson(){
-    const built = buildRuleJson();
-    document.getElementById('jsonOut').innerHTML = renderJsonHighlighted(built.rule, 0);
+    const built = buildRuleSet();
+    document.getElementById('jsonOut').innerHTML = renderJsonHighlighted(built.doc, 0);
     renderWarnings(built.warnings);
+    renderRulesList(built.units);
     return built;
   }
 
@@ -872,11 +1026,141 @@ window.rulewrightFlowBuilder = (function(){
     const list = document.getElementById('warnList');
     if(warnings.length === 0){
       list.className = 'warn-list ok';
-      list.innerHTML = `<li><span class="dot">●</span> Rule graph looks complete.</li>`;
+      list.innerHTML = `<li><span class="dot">●</span> Rule set looks complete.</li>`;
       return;
     }
     list.className = 'warn-list';
     list.innerHTML = warnings.map(w=>`<li><span class="dot">●</span>${escapeHtml(w)}</li>`).join('');
+  }
+
+  // Right-panel overview: one chip per rule on the canvas.
+  function renderRulesList(units){
+    const host = document.getElementById('rulesList');
+    if(!host) return;
+    if(!units || units.length === 0){
+      host.innerHTML = `<div class="rules-empty">No rules yet. Click <strong>+ Add rule</strong> or drag a Rule node onto the canvas.</div>`;
+      return;
+    }
+    host.innerHTML = units.map(u=>{
+      const rn = state.nodes.get(u.ruleNodeId);
+      const enabled = rn && rn.config.enabled !== false;
+      const fired = rn && rn._fired;
+      const sel = state.selectedNode === u.ruleNodeId ? ' selected' : '';
+      const firedBadge = fired ? `<span class="rule-fired ${fired}">${fired}</span>` : (rn && rn._skipped ? `<span class="rule-skip">skipped</span>` : '');
+      return `<div class="rule-chip${sel}" data-rule="${u.ruleNodeId}">
+        <span class="rule-chip-dot${enabled?'':' off'}"></span>
+        <span class="rule-chip-id">${escapeHtml(u.ruleId)}</span>
+        <span class="rule-chip-prio">P${Number(rn?rn.config.priority:0)||0}</span>
+        ${firedBadge}
+        <button class="rule-chip-del" data-rule-del="${u.ruleNodeId}" title="Delete this rule and its nodes">×</button>
+      </div>`;
+    }).join('');
+    host.querySelectorAll('.rule-chip').forEach(c=>{
+      c.addEventListener('click', (e)=>{
+        if(e.target.classList.contains('rule-chip-del')) return;
+        const id = c.dataset.rule;
+        selectNode(id); focusNode(id);
+      });
+    });
+    host.querySelectorAll('[data-rule-del]').forEach(b=>{
+      b.addEventListener('click', (e)=>{ e.stopPropagation(); removeRuleCluster(b.dataset.ruleDel); });
+    });
+  }
+
+  /* ============================================================
+     Add / remove rules
+     ============================================================ */
+  function addRuleNode(){
+    const w = screenToWorld(canvasWrap.clientWidth/2, canvasWrap.clientHeight/2);
+    const n = createNode('rule', snap(w.x - NODE_W/2), snap(w.y - 40));
+    selectNode(n.id);
+    regenerateJson();
+    showToast(`Added ${n.config.id}. Wire a condition + actions into it.`);
+  }
+
+  // The set of node ids that belong exclusively to this rule: the Rule node, its attached actions,
+  // and any upstream condition/value node whose every output feeds into that set.
+  function ruleClusterIds(rnId){
+    const D = new Set([rnId]);
+    state.nodes.forEach(n=>{
+      if(n.type === 'action' && n.inputs[0]){
+        const c = state.connections.get(n.inputs[0]);
+        if(c && c.from === rnId) D.add(n.id);
+      }
+    });
+    let changed = true;
+    while(changed){
+      changed = false;
+      state.nodes.forEach(n=>{
+        if(D.has(n.id)) return;
+        if(n.type === 'trigger' || n.type === 'rule') return; // never absorb the fact input or another rule
+        const outs = [...state.connections.values()].filter(c=>c.from === n.id);
+        if(outs.length === 0) return; // leave dangling nodes alone
+        if(outs.every(c=>D.has(c.to))){ D.add(n.id); changed = true; }
+      });
+    }
+    return D;
+  }
+  function removeRuleCluster(rnId){
+    const ids = ruleClusterIds(rnId);
+    ids.forEach(id=>removeNode(id));
+    regenerateJson();
+  }
+
+  /* ============================================================
+     Auto-layout (Tidy) — reposition the live graph into tidy bands
+     ============================================================ */
+  function placeUpstream(nodeId, x, y){
+    const node = state.nodes.get(nodeId);
+    if(!node) return y + ROW_H;
+    node.x = x; node.y = y;
+    const childConns = node.inputs
+      .map(id=>id && state.connections.get(id))
+      .filter(c=>c && state.nodes.get(c.from) && state.nodes.get(c.from).type !== 'rule');
+    if(childConns.length === 0) return y + ROW_H;
+    let cy = y;
+    childConns.forEach(c=>{ cy = placeUpstream(c.from, x - COL_W, cy); });
+    return cy;
+  }
+
+  function layoutAll(){
+    const facts = [...state.nodes.values()].filter(n=>n.type==='trigger');
+    facts.forEach((f,i)=>{ f.x = FACT_X; f.y = 40 + i*ROW_H; });
+
+    const ruleNodes = [...state.nodes.values()].filter(n=>n.type==='rule')
+      .sort((a,b)=> (Number(b.config.priority)||0) - (Number(a.config.priority)||0));
+
+    const RULE_X = FACT_X + COL_W*4;
+    let bandY = 40;
+    ruleNodes.forEach(rn=>{
+      let condBottom = bandY;
+      const condConn = rn.inputs[0] && state.connections.get(rn.inputs[0]);
+      if(condConn && state.nodes.get(condConn.from)){
+        condBottom = placeUpstream(condConn.from, RULE_X - COL_W, bandY);
+      }
+      const acts = actionsOf(rn);
+      let ay = bandY;
+      acts.forEach(a=>{
+        a.x = RULE_X + COL_W*2; a.y = ay;
+        const vconn = a.inputs[1] && state.connections.get(a.inputs[1]);
+        if(vconn && state.nodes.get(vconn.from)) placeUpstream(vconn.from, RULE_X + COL_W, ay);
+        ay += ROW_H;
+      });
+      const bandHeight = Math.max(condBottom - bandY, (acts.length||1) * ROW_H, nodeHeight(rn));
+      rn.x = RULE_X;
+      rn.y = bandY + Math.max(0, (bandHeight - nodeHeight(rn))/2);
+      bandY += bandHeight + BAND_GAP;
+    });
+
+    state.nodes.forEach(n=>renderNode(n));
+    renderWires();
+  }
+
+  function tidy(){
+    if(![...state.nodes.values()].some(n=>n.type==='rule')){ showToast("Add a Rule node first."); return; }
+    layoutAll();
+    fitToView();
+    showToast("Canvas arranged.");
   }
 
   /* ============================================================
@@ -900,11 +1184,13 @@ window.rulewrightFlowBuilder = (function(){
       btn.addEventListener('click', ()=>switchDrawerTab(btn.dataset.tab));
     });
     document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    const btnDl = document.getElementById('btnDownloadJson');
+    if(btnDl) btnDl.addEventListener('click', downloadJson);
     document.getElementById('btnCopyJson').addEventListener('click', async ()=>{
-      const built = buildRuleJson();
+      const built = buildRuleSet();
       try{
-        await navigator.clipboard.writeText(JSON.stringify(built.rule, null, 2));
-        showToast("Rule JSON copied to clipboard.");
+        await navigator.clipboard.writeText(JSON.stringify(built.doc, null, 2));
+        showToast("JSON copied to clipboard.");
       }catch(err){ showToast("Couldn't access the clipboard."); }
     });
   }
@@ -931,7 +1217,7 @@ window.rulewrightFlowBuilder = (function(){
   }
 
   function clearTestHighlight(){
-    state.nodes.forEach(n=>{ n._test = undefined; renderNode(n); });
+    state.nodes.forEach(n=>{ n._test = undefined; n._fired = null; n._skipped = false; renderNode(n); });
     renderWires();
   }
 
@@ -940,6 +1226,7 @@ window.rulewrightFlowBuilder = (function(){
     const node = state.nodes.get(idTree.id);
     if(node && traceNode){
       node._test = traceNode.passed === null || traceNode.passed === undefined ? undefined : traceNode.passed;
+      renderNode(node);
     }
     (idTree.children||[]).forEach((childIdTree, i)=>{
       const childTrace = traceNode && traceNode.children ? traceNode.children[i] : null;
@@ -960,9 +1247,9 @@ window.rulewrightFlowBuilder = (function(){
 
     if(!dotNetRef){ showToast("Engine bridge not ready."); return; }
 
-    const ruleJson = JSON.stringify(built.rule);
+    const docJson = JSON.stringify(built.doc);
     const factJson = JSON.stringify(fact);
-    const responseText = await dotNetRef.invokeMethodAsync('EvaluateRule', ruleJson, factJson);
+    const responseText = await dotNetRef.invokeMethodAsync('EvaluateRule', docJson, factJson);
     const response = JSON.parse(responseText);
 
     closeTestModal();
@@ -970,52 +1257,83 @@ window.rulewrightFlowBuilder = (function(){
 
     if(!response.ok){
       showResultBanner('fail', 'Error: ' + response.error);
-      openDrawer('validation');
+      const list = document.getElementById('warnList');
+      list.className = 'warn-list';
+      list.innerHTML = `<li><span class="dot">●</span>${escapeHtml(response.error || 'The engine could not evaluate this rule set.')}</li>`;
+      openDrawer('warnings');
       return;
     }
 
-    applyTraceHighlight(built.idTree, response.trace);
-    built.actionIds.forEach(id=>{
-      const n = state.nodes.get(id);
-      if(n){ n._test = response.fired; renderNode(n); }
+    const byId = {};
+    (response.rules||[]).forEach(r=>{ byId[r.ruleId] = r; });
+
+    built.units.forEach(u=>{
+      const rr = byId[u.ruleId];
+      if(!rr) return;
+      applyTraceHighlight(u.idTree, rr.trace);
+      const rn = state.nodes.get(u.ruleNodeId);
+      if(rn){
+        rn._fired = rr.firedBranch || null;
+        rn._skipped = !!rr.skipped;
+        rn._test = rr.firedBranch ? true : (rr.skipped ? undefined : false);
+        renderNode(rn);
+      }
+      u.thenIds.forEach(id=>{ const n = state.nodes.get(id); if(n){ n._test = rr.firedBranch === 'then'; renderNode(n); } });
+      u.elseIds.forEach(id=>{ const n = state.nodes.get(id); if(n){ n._test = rr.firedBranch === 'else'; renderNode(n); } });
     });
     renderWires();
+    renderRulesList(built.units);
 
+    const firedCount = (response.rules||[]).filter(r=>r.firedBranch).length;
     const outputsText = response.outputs && Object.keys(response.outputs).length
       ? Object.entries(response.outputs).map(([k,v])=>`${k}=${JSON.stringify(v)}`).join(', ')
       : '(no outputs)';
-    showResultBanner(response.fired ? 'pass' : 'fail', (response.fired ? '✓ Rule fired — ' : '✗ Rule did not fire — ') + outputsText);
+    const total = (response.rules||[]).length;
+    const summary = built.multi
+      ? `${firedCount} of ${total} rules fired — ${outputsText}`
+      : (firedCount > 0 ? `✓ Rule fired — ${outputsText}` : `✗ Rule did not fire — ${outputsText}`);
+    showResultBanner(firedCount > 0 ? 'pass' : 'fail', summary);
 
-    renderTracePanel(response.trace);
+    renderTracePanel(response.rules || []);
     openDrawer('trace');
   }
 
-  function renderTracePanel(traceNode){
+  function renderTracePanel(rules){
     const container = document.getElementById('panelTrace');
-    if(!traceNode){
-      container.innerHTML = `<div class="insp-empty">No condition to trace.</div>`;
+    if(!rules || rules.length === 0){
+      container.innerHTML = `<div class="insp-empty">No rules to trace.</div>`;
       return;
     }
-    const lines = [];
-    (function walk(node, d){
-      if(!node) return;
-      const passed = node.passed;
-      const cls = passed === true ? 'pass' : passed === false ? 'fail' : '';
-      const detail = passed === null || passed === undefined ? 'short-circuited' : (passed ? 'passed' : 'failed');
-      lines.push(`<div class="trace-line" style="padding-left:${d*14}px;">
-        <span class="trace-dot ${cls}"></span>
-        <span class="trace-node">${escapeHtml(node.description)}</span>
-        <span class="trace-detail">${detail}</span>
-      </div>`);
-      (node.children||[]).forEach(c=>walk(c, d+1));
-    })(traceNode, 0);
-    container.innerHTML = lines.join('') || `<div class="insp-empty">No condition to trace.</div>`;
+    let html = '';
+    rules.forEach(r=>{
+      const status = r.skipped ? 'skipped' : (r.firedBranch ? `fired · ${r.firedBranch}` : 'did not fire');
+      const cls = r.firedBranch ? 'pass' : (r.skipped ? '' : 'fail');
+      html += `<div class="trace-rule">
+        <span class="trace-rule-id">${escapeHtml(r.ruleId)}</span>
+        <span class="trace-rule-status ${cls}">${status}</span>
+      </div>`;
+      const lines = [];
+      (function walk(node, d){
+        if(!node) return;
+        const passed = node.passed;
+        const c = passed === true ? 'pass' : passed === false ? 'fail' : '';
+        const detail = passed === null || passed === undefined ? 'short-circuited' : (passed ? 'passed' : 'failed');
+        lines.push(`<div class="trace-line" style="padding-left:${(d*14)+10}px;">
+          <span class="trace-dot ${c}"></span>
+          <span class="trace-node">${escapeHtml(node.description)}</span>
+          <span class="trace-detail">${detail}</span>
+        </div>`);
+        (node.children||[]).forEach(ch=>walk(ch, d+1));
+      })(r.trace, 0);
+      html += lines.join('') || `<div class="trace-line" style="padding-left:10px;"><span class="trace-detail">(condition not traced)</span></div>`;
+    });
+    container.innerHTML = html;
   }
 
   async function runValidate(){
     const built = regenerateJson();
     if(!dotNetRef){ showToast("Engine bridge not ready."); return; }
-    const responseText = await dotNetRef.invokeMethodAsync('ValidateRule', JSON.stringify(built.rule));
+    const responseText = await dotNetRef.invokeMethodAsync('ValidateRule', JSON.stringify(built.doc));
     const response = JSON.parse(responseText);
 
     const list = document.getElementById('warnList');
@@ -1024,23 +1342,181 @@ window.rulewrightFlowBuilder = (function(){
 
     if(combined.length === 0){
       list.className = 'warn-list ok';
-      list.innerHTML = `<li><span class="dot">●</span> Rule is structurally valid.</li>`;
+      list.innerHTML = `<li><span class="dot">●</span> ${built.multi ? 'Rule set is structurally valid.' : 'Rule is structurally valid.'}</li>`;
     } else {
       list.className = 'warn-list';
       list.innerHTML = combined.map(w=>`<li><span class="dot">●</span>${escapeHtml(w)}</li>`).join('');
     }
     openDrawer('warnings');
-    showToast(response.valid && built.warnings.length===0 ? "Rule is valid." : "Validation found issues — see the Validation tab.");
+    showToast(response.valid && built.warnings.length===0 ? "Structurally valid." : "Validation found issues — see the Validation tab.");
+  }
+
+  function downloadJson(){
+    const built = buildRuleSet();
+    const base = built.doc.name || built.doc.id || 'rules';
+    const name = String(base).replace(/[^a-z0-9._-]+/gi, '-');
+    const blob = new Blob([JSON.stringify(built.doc, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded " + name + ".json");
   }
 
   function initToolbar(){
     document.getElementById('btnValidate').addEventListener('click', runValidate);
     document.getElementById('btnExport').addEventListener('click', ()=>{ regenerateJson(); openDrawer('json'); });
+    const btnNew = document.getElementById('btnNew');
+    if(btnNew) btnNew.addEventListener('click', newCanvas);
+    const btnTidy = document.getElementById('btnTidy');
+    if(btnTidy) btnTidy.addEventListener('click', tidy);
+    const btnAddRule = document.getElementById('btnAddRule');
+    if(btnAddRule) btnAddRule.addEventListener('click', addRuleNode);
   }
 
   /* ============================================================
-     Examples: fetch + import rule JSON as a canvas graph
+     Examples + import / new
      ============================================================ */
+  // Text fields (config.value) are parsed by parseValue(), which treats bare unquoted text as a
+  // string — matching what a user types by hand ("gold", not "\"gold\""). Only non-string values
+  // need their JSON form (numbers/booleans serialize the same either way; arrays/objects need
+  // brackets for parseValue's JSON.parse fallback).
+  function valueToFieldText(value){
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+
+  function importValueExpr(expr){
+    if(expr === null || typeof expr !== 'object'){
+      const n = createNode('valLiteral', 0, 0);
+      n.config.value = valueToFieldText(expr);
+      return n;
+    }
+    if('literal' in expr){
+      const n = createNode('valLiteral', 0, 0);
+      n.config.value = valueToFieldText(expr.literal);
+      return n;
+    }
+    if('field' in expr){
+      const n = createNode('valField', 0, 0);
+      n.config.field = expr.field;
+      return n;
+    }
+    if('op' in expr){
+      const n = createNode('valOp', 0, 0);
+      n.config.operator = expr.op;
+      (expr.operands || []).forEach((operand, i)=>{
+        const child = importValueExpr(operand);
+        addConnection(child.id, n.id, i);
+      });
+      return n;
+    }
+    const n = createNode('valLiteral', 0, 0);
+    n.config.value = 'null';
+    return n;
+  }
+
+  function importCondition(cond){
+    if(cond && cond.type === 'group'){
+      const opType = { AND:'and', OR:'or', NOT:'not' }[cond.operator] || 'and';
+      const n = createNode(opType, 0, 0);
+      (cond.rules || []).forEach((childCond, i)=>{
+        const child = importCondition(childCond);
+        addConnection(child.id, n.id, i);
+      });
+      return n;
+    }
+    if(cond && cond.operator === 'custom'){
+      const n = createNode('function', 0, 0);
+      n.config.name = cond.name || '';
+      if(cond.field) n.config.field = cond.field;
+      if(cond.value !== undefined) n.config.value = valueToFieldText(cond.value);
+      return n;
+    }
+    const n = createNode('leaf', 0, 0);
+    n.config.operator = (cond && cond.operator) || 'Equals';
+    if(cond && cond.expression){
+      const exprNode = importValueExpr(cond.expression);
+      addConnection(exprNode.id, n.id, 0);
+    } else {
+      n.config.field = (cond && cond.field) || '';
+    }
+    if(cond && cond.value !== undefined) n.config.value = valueToFieldText(cond.value);
+    return n;
+  }
+
+  function importRule(rule){
+    const rn = createNode('rule', 0, 0);
+    rn.config.id = rule.id || uniqueRuleId();
+    rn.config.description = rule.description || '';
+    rn.config.priority = rule.priority || 0;
+    rn.config.enabled = rule.enabled !== false;
+
+    if(rule.condition){
+      const root = importCondition(rule.condition);
+      addConnection(root.id, rn.id, 0);
+    }
+
+    const all = [
+      ...(rule.actions || []).map(a=>({ ...a, branch:'then' })),
+      ...(rule.else || []).map(a=>({ ...a, branch:'else' })),
+    ];
+    all.forEach(a=>{
+      const an = createNode('action', 0, 0);
+      an.config.type = a.type || 'setOutput';
+      an.config.target = a.target || '';
+      an.config.branch = a.branch;
+      if(a.type !== 'removeOutput' && a.value !== undefined){
+        if(a.value !== null && typeof a.value === 'object'){
+          const exprNode = importValueExpr(a.value);
+          addConnection(exprNode.id, an.id, 1);
+        } else {
+          an.config.value = valueToFieldText(a.value);
+        }
+      }
+      addConnection(rn.id, an.id, 0);
+    });
+    return rn;
+  }
+
+  function importDocument(doc){
+    clearGraph();
+    const setName = document.getElementById('ruleSetName');
+    if(setName) setName.value = (doc && doc.name) || '';
+    createNode('trigger', FACT_X, 40);
+    const rules = Array.isArray(doc.rules) ? doc.rules : [doc];
+    rules.forEach(rule=>importRule(rule));
+    layoutAll();
+    regenerateJson();
+    fitToView();
+  }
+
+  function loadDocIntoCanvas(doc, sourceLabel){
+    const label = sourceLabel ? ` from ${sourceLabel}` : '';
+    if(doc && doc.decisionTable){
+      showToast("Decision tables aren't supported by this visual canvas yet — open it in a text editor instead.");
+      return false;
+    }
+    importDocument(doc);
+    if(Array.isArray(doc.rules)){
+      showToast(`Loaded ${doc.rules.length} rule${doc.rules.length===1?'':'s'}${label}.`);
+    } else {
+      showToast(`Loaded rule${label}.`);
+    }
+    return true;
+  }
+
+  function newCanvas(){
+    clearGraph();
+    const setName = document.getElementById('ruleSetName');
+    if(setName) setName.value = '';
+    createNode('trigger', FACT_X, 40);
+    const rn = createNode('rule', FACT_X + COL_W*2, 60);
+    selectNode(rn.id);
+    regenerateJson();
+    fitToView();
+  }
+
   function initExamples(){
     const select = document.getElementById('exampleSelect');
     if(!select) return;
@@ -1052,7 +1528,7 @@ window.rulewrightFlowBuilder = (function(){
         opt.textContent = e.file;
         select.appendChild(opt);
       });
-    }).catch(()=>{ /* examples are optional; a missing manifest just leaves the dropdown empty */ });
+    }).catch(()=>{ /* examples are optional */ });
 
     select.addEventListener('change', async (e)=>{
       const file = e.target.value;
@@ -1060,15 +1536,7 @@ window.rulewrightFlowBuilder = (function(){
       try{
         const res = await fetch('examples/' + file);
         const doc = await res.json();
-        if(doc.decisionTable){
-          showToast("Decision tables aren't supported by this visual canvas yet — open it in a text editor instead.");
-        } else if(Array.isArray(doc.rules)){
-          importRuleJson(doc.rules[0]);
-          showToast(`Loaded rule 1 of ${doc.rules.length} from "${file}" — this canvas builds one rule at a time.`);
-        } else {
-          importRuleJson(doc);
-          showToast(`Loaded "${file}".`);
-        }
+        loadDocIntoCanvas(doc, `"${file}"`);
       }catch(err){
         showToast("Couldn't load that example.");
       }
@@ -1076,155 +1544,57 @@ window.rulewrightFlowBuilder = (function(){
     });
   }
 
-  const COL_W = 260, ROW_H = 130;
-
-  // Text fields (config.value) are parsed by parseValue(), which treats bare unquoted text as
-  // a string — matching what a user types by hand ("gold", not "\"gold\""). Populating a field
-  // with JSON.stringify(value) for a string would wrap it in quotes the field's own parser
-  // doesn't expect, double-quoting it on the next export. Only non-string values need their
-  // JSON form (numbers/booleans serialize the same either way; arrays/objects need brackets for
-  // parseValue's JSON.parse fallback to kick in).
-  function valueToFieldText(value){
-    return typeof value === 'string' ? value : JSON.stringify(value);
-  }
-
-  function importValueExpr(expr, x, y){
-    if(expr === null || typeof expr !== 'object'){
-      const n = createNode('valLiteral', x, y);
-      n.config.value = valueToFieldText(expr);
-      renderNode(n);
-      return n;
-    }
-    if('literal' in expr){
-      const n = createNode('valLiteral', x, y);
-      n.config.value = valueToFieldText(expr.literal);
-      renderNode(n);
-      return n;
-    }
-    if('field' in expr){
-      const n = createNode('valField', x, y);
-      n.config.field = expr.field;
-      renderNode(n);
-      return n;
-    }
-    if('op' in expr){
-      const n = createNode('valOp', x, y);
-      n.config.operator = expr.op;
-      const operands = expr.operands || [];
-      // Don't pre-grow node.inputs here — addConnection() already appends a fresh empty slot
-      // on every call for a dynamicInput node (that's how manual click-to-wire keeps exactly
-      // one trailing empty slot). Pre-growing AND relying on that auto-grow compounds into
-      // extra unwired slots (e.g. 3 operands ending up with 6 slots).
-      let oy = y;
-      operands.forEach((operand, i)=>{
-        const child = importValueExpr(operand, x - COL_W, oy);
-        oy += ROW_H;
-        addConnection(child.id, n.id, i);
-      });
-      renderNode(n);
-      return n;
-    }
-    const n = createNode('valLiteral', x, y);
-    n.config.value = 'null';
-    renderNode(n);
-    return n;
-  }
-
-  function importCondition(cond, x, y){
-    if(cond.type === 'group'){
-      const opType = { AND:'and', OR:'or', NOT:'not' }[cond.operator] || 'and';
-      const n = createNode(opType, x, y);
-      const rules = cond.rules || [];
-      // See the matching comment in importValueExpr — no pre-growth, addConnection() grows it.
-      let cy = y;
-      const childIds = [];
-      rules.forEach(childCond=>{
-        const childResult = importCondition(childCond, x - COL_W, cy);
-        cy += ROW_H;
-        childIds.push(childResult);
-      });
-      childIds.forEach((child, i)=>addConnection(child.id, n.id, i));
-      renderNode(n);
-      return n;
-    }
-    if(cond.operator === 'custom'){
-      const n = createNode('function', x, y);
-      n.config.name = cond.name || '';
-      if(cond.field) n.config.field = cond.field;
-      if(cond.value !== undefined) n.config.value = valueToFieldText(cond.value);
-      renderNode(n);
-      return n;
-    }
-    const n = createNode('leaf', x, y);
-    n.config.operator = cond.operator || 'Equals';
-    if(cond.expression){
-      const exprNode = importValueExpr(cond.expression, x - COL_W, y);
-      addConnection(exprNode.id, n.id, 0);
-    } else {
-      n.config.field = cond.field || '';
-    }
-    if(cond.value !== undefined) n.config.value = JSON.stringify(cond.value);
-    renderNode(n);
-    return n;
-  }
-
-  function importRuleJson(rule){
-    clearGraph();
-
-    document.getElementById('ruleId').value = rule.id || 'imported-rule';
-    document.getElementById('ruleDescription').value = rule.description || '';
-    document.getElementById('rulePriority').value = rule.priority || 0;
-    document.getElementById('ruleEnabled').checked = rule.enabled !== false;
-
-    createNode('trigger', 40, 260);
-
-    let rootNode = null;
-    if(rule.condition){
-      rootNode = importCondition(rule.condition, 340, 260);
-    }
-
-    const actionX = 340 + COL_W * 3;
-    let ay = 40;
-    const allActions = [
-      ...(rule.actions||[]).map(a=>({ ...a, branch:'then' })),
-      ...(rule.else||[]).map(a=>({ ...a, branch:'else' })),
-    ];
-    allActions.forEach(a=>{
-      const n = createNode('action', actionX, ay);
-      n.config.type = a.type || 'setOutput';
-      n.config.target = a.target || '';
-      n.config.branch = a.branch;
-      if(a.type !== 'removeOutput' && a.value !== undefined){
-        if(a.value !== null && typeof a.value === 'object'){
-          const exprNode = importValueExpr(a.value, actionX - COL_W, ay);
-          addConnection(exprNode.id, n.id, 1);
-        } else {
-          n.config.value = valueToFieldText(a.value);
-        }
-      }
-      renderNode(n);
-      if(rootNode) addConnection(rootNode.id, n.id, 0);
-      ay += ROW_H;
+  function initImportModal(){
+    const modal = document.getElementById('importModal');
+    if(!modal) return;
+    const open = ()=>{ document.getElementById('importInput').value = ''; modal.classList.add('open'); };
+    const close = ()=>modal.classList.remove('open');
+    document.getElementById('btnImport').addEventListener('click', open);
+    document.getElementById('importModalClose').addEventListener('click', close);
+    document.getElementById('importCancel').addEventListener('click', close);
+    document.getElementById('importLoad').addEventListener('click', ()=>{
+      const text = document.getElementById('importInput').value.trim();
+      if(!text){ showToast("Paste some rule JSON first."); return; }
+      let doc;
+      try{ doc = JSON.parse(text); }
+      catch(err){ showToast("That isn't valid JSON."); return; }
+      if(loadDocIntoCanvas(doc)) close();
     });
-
-    renderWires();
-    regenerateJson();
   }
 
   /* ============================================================
      Seed graph (nicer first run than a blank canvas)
      ============================================================ */
   function seedGraph(){
-    const trigger = createNode('trigger', 40, 60);
-    const leaf = createNode('leaf', 340, 40);
-    leaf.config.field = 'Customer.Age';
-    leaf.config.operator = 'GreaterThan';
-    leaf.config.value = '18';
-    const action = createNode('action', 640, 60);
-    action.config.target = 'Discount';
-    action.config.value = '10';
-    renderNode(trigger); renderNode(leaf); renderNode(action);
-    addConnection(leaf.id, action.id, 0);
+    importDocument({
+      name: "discount-rules",
+      rules: [
+        {
+          id: "vip-or-high-value",
+          description: "VIP or high-value customers over 18 get 10% off.",
+          priority: 10,
+          enabled: true,
+          condition: {
+            type: "group", operator: "AND", rules: [
+              { field: "Customer.Age", operator: "GreaterThan", value: 18 },
+              { type: "group", operator: "OR", rules: [
+                { field: "Order.Total", operator: "GreaterThanOrEqual", value: 100 },
+                { field: "Customer.IsVip", operator: "Equals", value: true }
+              ] }
+            ]
+          },
+          actions: [ { type: "setOutput", target: "Discount", value: 10 } ]
+        },
+        {
+          id: "free-shipping",
+          description: "Orders of $50+ ship free.",
+          priority: 5,
+          enabled: true,
+          condition: { field: "Order.Total", operator: "GreaterThanOrEqual", value: 50 },
+          actions: [ { type: "setOutput", target: "FreeShipping", value: true } ]
+        }
+      ]
+    });
   }
 
   /* ============================================================
@@ -1243,16 +1613,14 @@ window.rulewrightFlowBuilder = (function(){
     initPalette();
     initDrawer();
     initModal();
+    initImportModal();
     initToolbar();
     initExamples();
 
-    ['ruleId','ruleDescription','rulePriority','ruleEnabled'].forEach(id=>{
-      const el = document.getElementById(id);
-      if(el) el.addEventListener('input', ()=>regenerateJson());
-    });
+    const setName = document.getElementById('ruleSetName');
+    if(setName) setName.addEventListener('input', ()=>regenerateJson());
 
     seedGraph();
-    regenerateJson();
   }
 
   return { init };

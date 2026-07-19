@@ -104,3 +104,81 @@ round-trips its `addToOutput`/`appendToOutput` actions and AND-grouped custom-fu
 correctly; `08-arithmetic-operators.json` (26 nodes) loads without crashing; changing an
 existing action's type via the Inspector's new Type dropdown (e.g. `setOutput` →
 `addToOutput`) updates the exported JSON immediately.
+
+## Review pass: bug fixes + New/Import/Download/Fit + connection typing (later session)
+
+A review-and-fix pass on top of the above. All in `rule-canvas.js` + `Canvas.razor` (no engine
+change). Two real bugs, four UI features; a 20-check Playwright suite (`scratchpad/verify.js`)
+confirmed everything at 20/20 with zero console errors.
+
+**Bugs fixed:**
+1. **Test-rule error path crashed the page.** `runTest`'s `!response.ok` branch called
+   `openDrawer('validation')`, but the drawer tab is named `warnings` (`panelWarnings`) — so
+   `switchDrawerTab` did `getElementById('panelValidation').classList.add(...)` on `null` and
+   threw. Now opens `'warnings'` and also renders the engine's error message into `#warnList`.
+   Repro: import a rule with an invalid regex (`MatchesRegex` value `"("`) and Test it — the
+   engine throws, the fail banner + Validation tab now render cleanly instead of a page error.
+2. **String leaf comparison values double-quoted on import.** `importCondition` set the leaf's
+   value field via `JSON.stringify(cond.value)` (unlike actions/literals, which use
+   `valueToFieldText`), so a string like `"@acme.com"` went into the field WITH quotes and
+   re-exported as `"\"@acme.com\""`. Same class as the earlier action/literal bug (see above);
+   fixed by switching that line to `valueToFieldText(cond.value)`. Re-check example 03 round-trip
+   if `importCondition` is touched again.
+
+**Features added:**
+- **Connection type validation** (`nodeOutputKind`/`inputPortKind` + a guard in `addConnection`):
+  wiring a value node (Literal/Field Ref/Expression) into a condition pin — or a condition into a
+  value/expr pin — is now rejected up front with a toast instead of silently dropped at build
+  time. The **Fact Input (trigger) node lost its output port** (`noOutput:true`) since it's
+  reference-only and every wire from it was invalid anyway.
+- **Fit-to-view** (`fitToView`): the toolbar's ⤢ button (was a fixed 100%/60,60 reset) now frames
+  every node; import calls it automatically so imports of deep trees (which lay children out to
+  negative X) are fully on-screen.
+- **New** (`#btnNew` → `newCanvas`), **Import JSON** (`#btnImport` → `#importModal`),
+  **Download** (`#btnDownloadJson`).
+
+## Multi-rule authoring + professional pass (later session — CURRENT design)
+
+`rule-canvas.js` was substantially rewritten to build a whole **rule set** on one canvas, plus a
+UI polish pass. Model change: a first-class **Rule anchor node** (`type:'rule'`, gold accent).
+
+**How a rule is expressed now** (was: one implicit rule = all actions + their shared condition):
+- The condition tree's root output wires into the Rule node's **Condition** input pin.
+- The Rule node's **output** fans out to one or more **Action** nodes — so an action's input[0]
+  pin is now **"Rule"** (kind `'rule'`), NOT the condition root. Each action still carries its own
+  Then/Else branch dropdown.
+- `buildRuleSet()` iterates every Rule node: condition = `buildConditionTree(condInput.from)`;
+  actions = `actionsOf(ruleNode)` split by branch. **1 rule → bare rule object** (back-compat,
+  single-rule examples round-trip); **2+ rules → `{ name, rules:[...] }`** (name from
+  `#ruleSetName`, rules sorted priority-desc). Warnings for: no condition wired, no actions
+  attached, actions not attached to any rule, duplicate rule ids.
+- Connection kinds extended with `'rule'`: Rule.Condition expects `'condition'`; Action.input0
+  expects `'rule'`; Rule output emits `'rule'`. So a value→Rule-pin or rule→group-pin wire is
+  rejected with a toast (verified).
+
+**Multi-rule Test/trace** — the C# `EvaluateRule` bridge (`Pages/Canvas.razor`) now returns a
+per-rule array: `{ ruleId, conditionPassed, skipped, firedBranch, trace }` keyed by rule id
+(`RuleTrace.RuleId` + `FiredRule.RuleId`/`.Branch` make this robust — no positional matching
+across rules). JS `runTest` zips each rule's `idTree` against its `trace` by id, highlights that
+rule's condition nodes + Then/Else action nodes, sets `ruleNode._fired`, and the Trace panel shows
+one section per rule (`.trace-rule`). Banner reads "N of M rules fired — <merged outputs>".
+
+**Import/seed/tidy** — `importDocument(doc)` rebuilds ALL rules of a set (`importRule` per rule:
+Rule node + condition subtree + action nodes, all wired). Seed graph is a **2-rule** set. **Tidy**
+(`#btnTidy` → `layoutAll`) repositions the live graph into tidy per-rule bands by walking
+connections (`placeUpstream` follows inputs but stops at rule-kind sources); import calls it too.
+Snap-to-grid (12px) on node drop/drag-end. Wires are now **rounded orthogonal** (`orthPoints` +
+`roundedPath`).
+
+**Right panel** — the old fixed "Rule settings" (`#ruleId`/`#ruleDescription`/… — REMOVED) became
+a **Rule set** section: `#ruleSetName` + **+ Add rule** (`#btnAddRule` → `addRuleNode`) + a
+`#rulesList` of chips (one per rule: enabled dot, id, priority, fired/skip badge; click focuses
+the Rule node, × runs `removeRuleCluster` which deletes the rule + its exclusive upstream/action
+nodes via `ruleClusterIds` fixpoint). Per-rule id/description/priority/enabled now live in the
+**Rule node's** inspector.
+
+Verified via `scratchpad/verify2.js` — **23/23 checks, zero console errors**: 2-rule seed exports
+`{name,rules[]}`; Test fires 2/2 then 1/2 with correct merged outputs + per-rule trace + fired
+chips; Add rule; import `02-rule-set-priority.json` rebuilds all 3 rules; `03` string values
+round-trip un-doubled; Tidy; all connection-kind rejections; single-rule doc still exports bare.
+Full solution builds 0-warning Release; 376 tests/TFM unaffected (no library code changed).

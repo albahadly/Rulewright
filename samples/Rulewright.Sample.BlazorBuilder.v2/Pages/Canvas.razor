@@ -3,6 +3,8 @@
 @using Rulewright.Execution
 @using Rulewright.Serialization
 @using System.Text.Json
+@using System.Linq
+@using System.Collections.Generic
 @using Rulewright.Sample.BlazorBuilder.v2.Services
 @implements IDisposable
 @inject EngineService EngineService
@@ -23,24 +25,38 @@
         <option value="">Load example…</option>
       </select>
       <div class="divider"></div>
+      <button class="tbtn" id="btnNew" title="Clear the canvas and start a new rule">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" /></svg>
+        New
+      </button>
+      <button class="tbtn" id="btnImport" title="Paste your own rule JSON and rebuild it on the canvas">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 11V3m0 8L5 8m3 3l3-3M3 12v1.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V12" /></svg>
+        Import
+      </button>
+      <div class="divider"></div>
       <button class="tbtn" id="btnValidate">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8.5l3.5 3.5L14 3.5" /></svg>
-        Validate rule
+        Validate
       </button>
       <button class="tbtn" id="btnTest">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l8 5-8 5V3z" /></svg>
-        Test rule
+        Test
       </button>
       <button class="tbtn primary" id="btnExport">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 12v1.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V12" /></svg>
         Export JSON
       </button>
       <div class="divider"></div>
+      <button class="tbtn" id="btnTidy" title="Auto-arrange every rule into tidy columns">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h5M2 8h5M2 13h5M11 3h3M9 8h5M11 13h3" /></svg>
+        Tidy
+      </button>
+      <div class="divider"></div>
       <div class="zoomgroup">
         <button id="zoomOut">−</button>
         <span class="zoomlabel" id="zoomLabel">100%</span>
         <button id="zoomIn">+</button>
-        <button id="zoomReset" title="Reset view">⤢</button>
+        <button id="zoomReset" title="Fit all nodes to view">⤢</button>
       </div>
     </div>
   </div>
@@ -52,6 +68,12 @@
     <div class="palette-item" draggable="true" data-type="trigger" style="--item-color:var(--accent-teal)">
       <div class="palette-badge">▶</div>
       <div class="palette-label">Fact Input</div>
+    </div>
+
+    <div class="palette-title">Rule</div>
+    <div class="palette-item" draggable="true" data-type="rule" style="--item-color:var(--accent-gold)">
+      <div class="palette-badge">§</div>
+      <div class="palette-label">Rule</div>
     </div>
 
     <div class="palette-title">Conditions</div>
@@ -99,7 +121,8 @@
     </div>
 
     <div class="palette-hint" style="margin-top:16px;border-top:1px solid var(--border-soft);padding-top:14px;">
-      Drag from a node's right pin to another node's left pin to connect them. Click a wire to select it, then press Delete.
+      Each <strong>Rule</strong> node is one rule: wire a condition into its <strong>Condition</strong> pin, and one or more
+      Action nodes to its output. Drop several Rule nodes to build a whole rule set at once.
       Wire a computed value into a Compare's <strong>Field (expr)</strong> pin or an Action's <strong>Value (expr)</strong> pin
       to use a formula instead of a constant.
     </div>
@@ -116,24 +139,16 @@
 
   <div class="inspector">
     <div class="insp-section">
-      <div class="insp-title">Rule settings</div>
+      <div class="insp-title">Rule set</div>
       <div class="field">
-        <label>Rule ID</label>
-        <input type="text" id="ruleId" value="discount-rule-01">
+        <label>Set name (used when 2+ rules)</label>
+        <input type="text" id="ruleSetName" placeholder="discount-rules" value="discount-rules">
       </div>
-      <div class="field">
-        <label>Description</label>
-        <input type="text" id="ruleDescription" value="VIP or high-value customers get 10% off">
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label>Priority</label>
-          <input type="number" id="rulePriority" value="10">
-        </div>
-        <div class="field" style="flex:0 0 auto;padding-top:22px;">
-          <div class="checkbox-row"><input type="checkbox" id="ruleEnabled" checked> Enabled</div>
-        </div>
-      </div>
+      <button class="tbtn add-rule-btn" id="btnAddRule" title="Add a new Rule node to the canvas">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" /></svg>
+        Add rule
+      </button>
+      <div class="rules-list" id="rulesList"></div>
     </div>
     <div class="insp-section" id="nodeInspector" style="flex:1;">
       <div class="insp-title">Node inspector</div>
@@ -152,6 +167,7 @@
       <button class="drawer-tab" data-tab="trace">Trace</button>
       <button class="drawer-tab" data-tab="warnings">Validation</button>
       <div class="drawer-actions">
+        <button class="tbtn" id="btnDownloadJson" style="padding:5px 10px;">Download</button>
         <button class="tbtn" id="btnCopyJson" style="padding:5px 10px;">Copy</button>
         <button class="drawer-close" id="drawerClose">×</button>
       </div>
@@ -177,6 +193,23 @@
     <div class="modal-foot">
       <button class="tbtn" id="testCancel">Cancel</button>
       <button class="tbtn primary" id="testRun">Run test</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Import rule JSON</h3>
+      <button class="modal-close" id="importModalClose">×</button>
+    </div>
+    <div class="modal-body">
+      <p>Paste a Rulewright rule document below. A rule set loads its first rule; decision tables aren't supported by this visual canvas.</p>
+      <textarea id="importInput" placeholder='{ "id": "my-rule", "condition": { ... }, "actions": [ ... ] }'></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="importCancel">Cancel</button>
+      <button class="tbtn primary" id="importLoad">Load onto canvas</button>
     </div>
   </div>
 </div>
@@ -220,7 +253,11 @@
         }
     }
 
-    /// <summary>Loads, evaluates, and traces the rule against the given fact.</summary>
+    /// <summary>
+    /// Loads, evaluates, and traces a rule (or a whole rule set) against the given fact. Returns a
+    /// per-rule breakdown keyed by rule id — the JS zips each rule's condition trace back onto its
+    /// canvas nodes and marks which rules fired (and on which branch).
+    /// </summary>
     [JSInvokable]
     public string EvaluateRule(string ruleJson, string factJson)
     {
@@ -231,18 +268,29 @@
                 JsonDocument.Parse(factJson).RootElement);
             RuleEvaluationResult result = EngineService.Engine.Evaluate(loaded, fact, new EvaluationOptions { EnableTrace = true });
 
-            bool fired = result.FiredRules.Count > 0;
-            object? traceNode = result.Trace is { Rules.Count: > 0 } trace
-                ? ToTraceJson(trace.Rules[0].Condition)
-                : null;
+            // Which branch (if any) each rule fired on.
+            var firedBranch = new Dictionary<string, string>();
+            foreach (FiredRule fr in result.FiredRules)
+            {
+                firedBranch[fr.RuleId] = fr.Branch == RuleBranch.Else ? "else" : "then";
+            }
+
+            IReadOnlyList<RuleTrace> ruleTraces = result.Trace?.Rules ?? new List<RuleTrace>();
+            var rules = ruleTraces.Select(rt => new
+            {
+                ruleId = rt.RuleId,
+                conditionPassed = rt.Fired,
+                skipped = rt.Skipped,
+                firedBranch = firedBranch.TryGetValue(rt.RuleId, out string? b) ? b : null,
+                trace = ToTraceJson(rt.Condition),
+            }).ToArray();
 
             var payload = new
             {
                 ok = true,
                 error = (string?)null,
-                fired,
                 outputs = result.Outputs,
-                trace = traceNode,
+                rules,
             };
             return JsonSerializer.Serialize(payload);
         }
@@ -252,9 +300,8 @@
             {
                 ok = false,
                 error = ex.Message,
-                fired = false,
                 outputs = (object?)null,
-                trace = (object?)null,
+                rules = Array.Empty<object>(),
             });
         }
     }

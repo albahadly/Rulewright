@@ -1,0 +1,22 @@
+{
+  "decisionTable": {
+    "name": "Shipping cost",
+    "id": "shipping",
+    "hitPolicy": "first",
+    "description": "'first' picks exactly one row: the tables the rows in are checked top to bottom, and only the first match applies. Row order encodes precedence — VIPs ship free even if they're also over the $100 threshold.",
+    "inputs": [
+      { "field": "Customer.Tier", "operator": "Equals" },
+      { "field": "Order.Total", "operator": "GreaterThanOrEqual" }
+    ],
+    "outputs": [
+      { "target": "ShippingCost" },
+      { "target": "ShippingTier" }
+    ],
+    "rows": [
+      { "when": [ "vip", null ], "then": [ 0, "free-vip" ] },
+      { "when": [ null, 100 ], "then": [ 0, "free-over-100" ] },
+      { "when": [ null, 50 ], "then": [ 4.95, "reduced" ] },
+      { "when": [ null, null ], "then": [ 9.95, "standard" ] }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "decisionTable": {
+    "name": "Loyalty points",
+    "id": "points",
+    "hitPolicy": "collect",
+    "description": "'collect' (the default) applies every matching row, in row order — rows are additive tiers rather than mutually-exclusive branches, so a $150 gold-tier order collects the $50-and-up bonus, the $100-and-up bonus, and the tier bonus all at once.",
+    "inputs": [
+      { "field": "Order.Total", "operator": "GreaterThanOrEqual" },
+      { "field": "Customer.Tier", "operator": "In" }
+    ],
+    "outputs": [
+      { "target": "Points", "type": "addToOutput" },
+      { "target": "PointReasons", "type": "appendToOutput" }
+    ],
+    "rows": [
+      { "when": [ 50, null ], "then": [ 10, "order-over-50" ] },
+      { "when": [ 100, null ], "then": [ 20, "order-over-100" ] },
+      { "when": [ null, [ "gold", "vip" ] ], "then": [ 50, "premium-member" ] }
+    ]
+  }
+}

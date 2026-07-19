@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Rulewright.Execution\Rulewright.Execution.csproj" />
+    <ProjectReference Include="..\..\src\Rulewright.Json.NewtonsoftJson\Rulewright.Json.NewtonsoftJson.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="rules\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

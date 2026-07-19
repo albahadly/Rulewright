@@ -1,17 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rulewright.Execution\Rulewright.Execution.csproj" />
+    <ProjectReference Include="..\..\src\Rulewright.Extensions.Functions\Rulewright.Extensions.Functions.csproj" />
     <ProjectReference Include="..\..\src\Rulewright.Json.SystemText\Rulewright.Json.SystemText.csproj" />
-    <ProjectReference Include="..\..\src\Rulewright.Serialization\Rulewright.Serialization.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Update="rules\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

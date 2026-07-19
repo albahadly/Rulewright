@@ -16,11 +16,18 @@
     <File Path="examples/13-if-else-append.json" />
     <File Path="examples/14-if-else-decision-table.json" />
     <File Path="examples/15-condition-side-expression.json" />
+    <File Path="examples/16-else-and-remove.json" />
+    <File Path="examples/17-disabled-rule.json" />
+    <File Path="examples/18-builtin-functions.json" />
+    <File Path="examples/19-decision-table-computed-cell.json" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Rulewright.Sample.AspNetCore/Rulewright.Sample.AspNetCore.csproj" />
     <Project Path="samples/Rulewright.Sample.ConsoleApp/Rulewright.Sample.ConsoleApp.csproj" />
+    <Project Path="samples/Rulewright.Sample.DecisionTable/Rulewright.Sample.DecisionTable.csproj" />
+    <Project Path="samples/Rulewright.Sample.Functions/Rulewright.Sample.Functions.csproj" />
     <Project Path="samples/Rulewright.Sample.NetFramework48/Rulewright.Sample.NetFramework48.csproj" />
+    <Project Path="samples/Rulewright.Sample.NewtonsoftJson/Rulewright.Sample.NewtonsoftJson.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Rulewright.Core/Rulewright.Core.csproj" />

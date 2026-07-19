@@ -16,6 +16,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>rules-engine;business-rules;dotnet;netstandard2.0;json</PackageTags>
     <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/albahadly/Rulewright.git</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/albahadly/Rulewright</PackageProjectUrl>
     <PackageReadmeFile Condition="Exists('$(MSBuildProjectDirectory)/README.md')">README.md</PackageReadmeFile>
   </PropertyGroup>
 

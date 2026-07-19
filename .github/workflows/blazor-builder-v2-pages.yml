@@ -22,6 +22,7 @@ jobs:
   build:
     name: Build and package Blazor site
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -37,9 +38,16 @@ jobs:
 
       - name: Configure project-site path and SPA fallback
         run: |
+          set -euo pipefail
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           BASE_PATH="/${REPO_NAME}/"
           sed -i "s|<base href=\"/\" />|<base href=\"${BASE_PATH}\" />|g" publish/wwwroot/index.html
+
+          if [ -f publish/wwwroot/CNAME ]; then
+            echo "Unexpected CNAME file detected in publish output. Remove custom-domain artifacts before deploy."
+            exit 1
+          fi
+
           cp publish/wwwroot/index.html publish/wwwroot/404.html
           touch publish/wwwroot/.nojekyll
 
@@ -55,6 +63,7 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Deploy

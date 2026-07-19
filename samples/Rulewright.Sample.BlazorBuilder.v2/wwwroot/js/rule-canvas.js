@@ -73,11 +73,14 @@ window.rulewrightFlowBuilder = (function(){
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function snap(v){ return Math.round(v/GRID)*GRID; }
 
-  function showToast(msg){
+  function showToast(msg, tone){
     toastEl.textContent = msg;
+    toastEl.classList.remove('success', 'error');
+    if(tone === 'success') toastEl.classList.add('success');
+    if(tone === 'error') toastEl.classList.add('error');
     toastEl.classList.add('show');
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(()=>toastEl.classList.remove('show'), 3200);
+    showToast._t = setTimeout(()=>toastEl.classList.remove('show', 'success', 'error'), 3200);
   }
 
   function screenToWorld(clientX, clientY){
@@ -1496,30 +1499,44 @@ window.rulewrightFlowBuilder = (function(){
   // evaluates) to hand back the equivalent { name, rules[] } and render THAT. What you see on the
   // canvas is exactly what the engine would run.
   async function expandDocument(doc){
-    if(!dotNetRef){ showToast("Engine bridge not ready."); return null; }
+    if(!dotNetRef){ showToast("Engine bridge not ready.", 'error'); return null; }
     const respText = await dotNetRef.invokeMethodAsync('ExpandDocument', JSON.stringify(doc));
     const resp = JSON.parse(respText);
-    if(!resp.ok){ showToast("Couldn't expand that document: " + resp.error); return null; }
+    if(!resp.ok){ showToast("Couldn't expand that document: " + resp.error, 'error'); return null; }
     return { name: resp.name, rules: resp.rules };
   }
 
   async function loadDocIntoCanvas(doc, sourceLabel){
     const label = sourceLabel ? ` from ${sourceLabel}` : '';
+    if(!doc || typeof doc !== 'object' || Array.isArray(doc)){
+      showToast("This JSON file isn't supported by the canvas.", 'error');
+      return false;
+    }
+
+    const isDecisionTableDoc = !!doc.decisionTable;
+    const isRuleSetDoc = Array.isArray(doc.rules);
+    const isSingleRuleDoc = !!doc.condition;
+
+    if(!isDecisionTableDoc && !isRuleSetDoc && !isSingleRuleDoc){
+      showToast("This JSON file isn't supported by the canvas.", 'error');
+      return false;
+    }
+
     if(doc && doc.decisionTable){
       const expanded = await expandDocument(doc);
       if(!expanded || !expanded.rules || expanded.rules.length === 0){
-        if(expanded) showToast("That decision table expanded to no rules.");
+        if(expanded) showToast("That decision table expanded to no rules.", 'error');
         return false;
       }
       importDocument({ name: expanded.name || 'decision-table', rules: expanded.rules });
-      showToast(`Expanded a decision table into ${expanded.rules.length} rule${expanded.rules.length===1?'':'s'}${label}.`);
+      showToast(`Expanded a decision table into ${expanded.rules.length} rule${expanded.rules.length===1?'':'s'}${label}.`, 'success');
       return true;
     }
     importDocument(doc);
     if(Array.isArray(doc.rules)){
-      showToast(`Loaded ${doc.rules.length} rule${doc.rules.length===1?'':'s'}${label}.`);
+      showToast(`Loaded ${doc.rules.length} rule${doc.rules.length===1?'':'s'}${label}.`, 'success');
     } else {
-      showToast(`Loaded rule${label}.`);
+      showToast(`Loaded rule${label}.`, 'success');
     }
     return true;
   }
@@ -1553,10 +1570,11 @@ window.rulewrightFlowBuilder = (function(){
       if(!file) return;
       try{
         const res = await fetch('examples/' + file);
+        if(!res.ok) throw new Error('HTTP ' + res.status);
         const doc = await res.json();
         await loadDocIntoCanvas(doc, `"${file}"`);
       }catch(err){
-        showToast("Couldn't load that example.");
+        showToast("Couldn't load that example.", 'error');
       }
       select.value = "";
     });
@@ -1572,10 +1590,10 @@ window.rulewrightFlowBuilder = (function(){
     document.getElementById('importCancel').addEventListener('click', close);
     document.getElementById('importLoad').addEventListener('click', async ()=>{
       const text = document.getElementById('importInput').value.trim();
-      if(!text){ showToast("Paste some rule JSON first."); return; }
+      if(!text){ showToast("Paste some rule JSON first.", 'error'); return; }
       let doc;
       try{ doc = JSON.parse(text); }
-      catch(err){ showToast("That isn't valid JSON."); return; }
+      catch(err){ showToast("That isn't valid JSON.", 'error'); return; }
       if(await loadDocIntoCanvas(doc)) close();
     });
   }

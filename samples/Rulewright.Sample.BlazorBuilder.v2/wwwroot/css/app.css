@@ -314,6 +314,8 @@ svg.wires{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
     font-family:var(--font-mono);
 }
 .canvas-toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+.canvas-toast.success{border-color:var(--accent-green);color:var(--accent-green);}
+.canvas-toast.error{border-color:var(--accent-red);color:var(--accent-red);}
 
 .result-banner{
     position:absolute;top:14px;left:50%;transform:translateX(-50%) translateY(-8px);

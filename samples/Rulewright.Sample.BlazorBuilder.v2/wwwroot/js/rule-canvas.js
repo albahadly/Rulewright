@@ -390,16 +390,16 @@ window.rulewrightFlowBuilder = (function(){
   }
 
   function addConnection(fromId, toId, toIdx){
-    if(fromId === toId){ showToast("A node can't connect to itself."); return null; }
+    if(fromId === toId){ showToast("A node can't connect to itself.", 'error'); return null; }
     const toNode = state.nodes.get(toId);
     if(!toNode) return null;
-    if(toNode.inputs[toIdx]){ showToast("That input is already connected."); return null; }
-    if(isDescendant(toId, fromId)){ showToast("That connection would create a loop."); return null; }
+    if(toNode.inputs[toIdx]){ showToast("That input is already connected.", 'error'); return null; }
+    if(isDescendant(toId, fromId)){ showToast("That connection would create a loop.", 'error'); return null; }
 
     const fromKind = nodeOutputKind(state.nodes.get(fromId));
     const expected = inputPortKind(toNode, toIdx);
     if(fromKind && expected && fromKind !== expected){
-      showToast(`That pin expects ${KIND_LABEL[expected]} — not ${KIND_LABEL[fromKind]}.`);
+      showToast(`That pin expects ${KIND_LABEL[expected]} — not ${KIND_LABEL[fromKind]}.`, 'error');
       return null;
     }
 
@@ -626,8 +626,8 @@ window.rulewrightFlowBuilder = (function(){
         try{
           state.sampleFact = JSON.parse(e.target.value);
           renderNode(node);
-          showToast("Sample fact updated.");
-        }catch(err){ showToast("Invalid JSON — fact not updated."); }
+          showToast("Sample fact updated.", 'success');
+        }catch(err){ showToast("Invalid JSON — fact not updated.", 'error'); }
       });
     }
     if(node.type === 'rule'){
@@ -1078,7 +1078,7 @@ window.rulewrightFlowBuilder = (function(){
     const n = createNode('rule', snap(w.x - NODE_W/2), snap(w.y - 40));
     selectNode(n.id);
     regenerateJson();
-    showToast(`Added ${n.config.id}. Wire a condition + actions into it.`);
+    showToast(`Added ${n.config.id}. Wire a condition + actions into it.`, 'success');
   }
 
   // The set of node ids that belong exclusively to this rule: the Rule node, its attached actions,
@@ -1160,10 +1160,10 @@ window.rulewrightFlowBuilder = (function(){
   }
 
   function tidy(){
-    if(![...state.nodes.values()].some(n=>n.type==='rule')){ showToast("Add a Rule node first."); return; }
+    if(![...state.nodes.values()].some(n=>n.type==='rule')){ showToast("Add a Rule node first.", 'error'); return; }
     layoutAll();
     fitToView();
-    showToast("Canvas arranged.");
+    showToast("Canvas arranged.", 'success');
   }
 
   /* ============================================================
@@ -1193,8 +1193,8 @@ window.rulewrightFlowBuilder = (function(){
       const built = buildRuleSet();
       try{
         await navigator.clipboard.writeText(JSON.stringify(built.doc, null, 2));
-        showToast("JSON copied to clipboard.");
-      }catch(err){ showToast("Couldn't access the clipboard."); }
+        showToast("JSON copied to clipboard.", 'success');
+      }catch(err){ showToast("Couldn't access the clipboard.", 'error'); }
     });
   }
 
@@ -1243,12 +1243,12 @@ window.rulewrightFlowBuilder = (function(){
     try{
       fact = JSON.parse(document.getElementById('factInput').value);
     }catch(err){
-      showToast("Fact JSON is invalid.");
+      showToast("Fact JSON is invalid.", 'error');
       return;
     }
     state.sampleFact = fact;
 
-    if(!dotNetRef){ showToast("Engine bridge not ready."); return; }
+    if(!dotNetRef){ showToast("Engine bridge not ready.", 'error'); return; }
 
     const docJson = JSON.stringify(built.doc);
     const factJson = JSON.stringify(fact);
@@ -1335,7 +1335,7 @@ window.rulewrightFlowBuilder = (function(){
 
   async function runValidate(){
     const built = regenerateJson();
-    if(!dotNetRef){ showToast("Engine bridge not ready."); return; }
+    if(!dotNetRef){ showToast("Engine bridge not ready.", 'error'); return; }
     const responseText = await dotNetRef.invokeMethodAsync('ValidateRule', JSON.stringify(built.doc));
     const response = JSON.parse(responseText);
 
@@ -1351,7 +1351,8 @@ window.rulewrightFlowBuilder = (function(){
       list.innerHTML = combined.map(w=>`<li><span class="dot">●</span>${escapeHtml(w)}</li>`).join('');
     }
     openDrawer('warnings');
-    showToast(response.valid && built.warnings.length===0 ? "Structurally valid." : "Validation found issues — see the Validation tab.");
+    showToast(response.valid && built.warnings.length===0 ? "Structurally valid." : "Validation found issues — see the Validation tab.",
+      response.valid && built.warnings.length===0 ? 'success' : 'error');
   }
 
   function downloadJson(){
@@ -1364,7 +1365,7 @@ window.rulewrightFlowBuilder = (function(){
     a.href = url; a.download = name + '.json';
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-    showToast("Downloaded " + name + ".json");
+    showToast("Downloaded " + name + ".json", 'success');
   }
 
   function initToolbar(){

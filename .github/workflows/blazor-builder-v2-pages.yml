@@ -1,0 +1,62 @@
+name: Deploy Rulewright Editor
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - samples/Rulewright.Sample.BlazorBuilder.v2/**
+      - .github/workflows/blazor-builder-v2-pages.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and package Blazor site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Rulewright.Sample.BlazorBuilder.v2
+        run: dotnet publish samples/Rulewright.Sample.BlazorBuilder.v2/Rulewright.Sample.BlazorBuilder.v2.csproj -c Release -o publish
+
+      - name: Configure GitHub Pages subpath and SPA fallback
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          BASE_PATH="/${REPO_NAME}/"
+          sed -i "s|<base href=\"/\" />|<base href=\"${BASE_PATH}\" />|g" publish/wwwroot/index.html
+          cp publish/wwwroot/index.html publish/wwwroot/404.html
+          touch publish/wwwroot/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

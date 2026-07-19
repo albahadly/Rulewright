@@ -53,40 +53,54 @@ public static class BuiltInFunctions
         var functions = new IRuleFunction[]
         {
             // String
-            new NamedRuleFunction("IsNullOrEmpty", (field, value) => field is null || (field is string s && s.Length == 0)),
-            new NamedRuleFunction("IsNullOrWhiteSpace", (field, value) => field is null || (field is string s && string.IsNullOrWhiteSpace(s))),
+            new NamedRuleFunction("IsNullOrEmpty", (field, value) => field is null || (field is string s && s.Length == 0),
+                "Field is null or an empty string.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsNullOrWhiteSpace", (field, value) => field is null || (field is string s && string.IsNullOrWhiteSpace(s)),
+                "Field is null, empty, or whitespace.", RuleFunctionValueKind.None),
             new NamedRuleFunction("EqualsIgnoreCase", (field, value) => field is string a && value is string b
                 ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
-                : field is null && value is null),
-            new NamedRuleFunction("IsEmail", (field, value) => field is string s && EmailPattern.IsMatch(s)),
+                : field is null && value is null,
+                "Field equals the value, ignoring case (ordinal).", RuleFunctionValueKind.Text),
+            new NamedRuleFunction("IsEmail", (field, value) => field is string s && EmailPattern.IsMatch(s),
+                "Field looks like an email address.", RuleFunctionValueKind.None),
 
             // Numeric
-            new NamedRuleFunction("IsEven", (field, value) => FunctionValues.TryToInt64(field, out long n) && n % 2 == 0),
-            new NamedRuleFunction("IsOdd", (field, value) => FunctionValues.TryToInt64(field, out long n) && n % 2 != 0),
-            new NamedRuleFunction("IsPositive", (field, value) => FunctionValues.TryToDouble(field, out double d) && d > 0),
-            new NamedRuleFunction("IsNegative", (field, value) => FunctionValues.TryToDouble(field, out double d) && d < 0),
+            new NamedRuleFunction("IsEven", (field, value) => FunctionValues.TryToInt64(field, out long n) && n % 2 == 0,
+                "Field is an even integer.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsOdd", (field, value) => FunctionValues.TryToInt64(field, out long n) && n % 2 != 0,
+                "Field is an odd integer.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsPositive", (field, value) => FunctionValues.TryToDouble(field, out double d) && d > 0,
+                "Field is a number greater than zero.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsNegative", (field, value) => FunctionValues.TryToDouble(field, out double d) && d < 0,
+                "Field is a number less than zero.", RuleFunctionValueKind.None),
             new NamedRuleFunction("DivisibleBy", (field, value) =>
                 FunctionValues.TryToInt64(field, out long n)
                 && FunctionValues.TryToInt64(value, out long divisor)
                 && divisor != 0
-                && n % divisor == 0),
+                && n % divisor == 0,
+                "Field is an integer divisible by the value.", RuleFunctionValueKind.Scalar),
             new NamedRuleFunction("IsBetweenInclusive", (field, value) =>
                 value is object?[] bounds
                 && bounds.Length == 2
                 && FunctionValues.TryToDouble(field, out double f)
                 && FunctionValues.TryToDouble(bounds[0], out double min)
                 && FunctionValues.TryToDouble(bounds[1], out double max)
-                && f >= min && f <= max),
+                && f >= min && f <= max,
+                "Field is within the [min, max] value array (inclusive).", RuleFunctionValueKind.Array),
 
             // Date / time
             new NamedRuleFunction("IsWeekend", (field, value) =>
                 FunctionValues.TryToDateTime(field, out DateTime dt)
-                && (dt.DayOfWeek == DayOfWeek.Saturday || dt.DayOfWeek == DayOfWeek.Sunday)),
+                && (dt.DayOfWeek == DayOfWeek.Saturday || dt.DayOfWeek == DayOfWeek.Sunday),
+                "Field date falls on a Saturday or Sunday.", RuleFunctionValueKind.None),
             new NamedRuleFunction("IsWeekday", (field, value) =>
                 FunctionValues.TryToDateTime(field, out DateTime dt)
-                && dt.DayOfWeek != DayOfWeek.Saturday && dt.DayOfWeek != DayOfWeek.Sunday),
-            new NamedRuleFunction("IsInPast", (field, value) => FunctionValues.TryToDateTime(field, out DateTime dt) && dt < now()),
-            new NamedRuleFunction("IsInFuture", (field, value) => FunctionValues.TryToDateTime(field, out DateTime dt) && dt > now()),
+                && dt.DayOfWeek != DayOfWeek.Saturday && dt.DayOfWeek != DayOfWeek.Sunday,
+                "Field date falls on a weekday.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsInPast", (field, value) => FunctionValues.TryToDateTime(field, out DateTime dt) && dt < now(),
+                "Field date is before now.", RuleFunctionValueKind.None),
+            new NamedRuleFunction("IsInFuture", (field, value) => FunctionValues.TryToDateTime(field, out DateTime dt) && dt > now(),
+                "Field date is after now.", RuleFunctionValueKind.None),
         };
 
         return new ReadOnlyCollection<IRuleFunction>(functions);

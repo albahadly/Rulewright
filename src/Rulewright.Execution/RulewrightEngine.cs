@@ -22,6 +22,7 @@ public sealed class RulewrightEngine
     private readonly IRuleJsonReader? _jsonReader;
     private readonly IReadOnlyDictionary<string, IRuleFunction> _functions;
     private readonly ReadOnlyCollection<string> _registeredFunctions;
+    private readonly ReadOnlyCollection<RuleFunctionDescriptor> _functionCatalog;
     private readonly ConcurrentDictionary<CompiledCacheKey, object> _compiledRules =
         new ConcurrentDictionary<CompiledCacheKey, object>();
 
@@ -33,6 +34,17 @@ public sealed class RulewrightEngine
         var names = new List<string>(functions.Keys);
         names.Sort(StringComparer.Ordinal);
         _registeredFunctions = new ReadOnlyCollection<string>(names);
+
+        var descriptors = new List<RuleFunctionDescriptor>(names.Count);
+        foreach (var name in names)
+        {
+            var function = functions[name];
+            descriptors.Add(function is IRuleFunctionMetadata metadata
+                ? new RuleFunctionDescriptor(name, metadata.Description, metadata.ValueKind)
+                : new RuleFunctionDescriptor(name, description: null, RuleFunctionValueKind.Unspecified));
+        }
+
+        _functionCatalog = new ReadOnlyCollection<RuleFunctionDescriptor>(descriptors);
     }
 
     /// <summary>
@@ -42,6 +54,14 @@ public sealed class RulewrightEngine
     /// engine — the one part of the vocabulary that varies per configuration.
     /// </summary>
     public IReadOnlyList<string> RegisteredFunctions => _registeredFunctions;
+
+    /// <summary>
+    /// Discovery metadata for the <c>custom</c> functions registered on this engine, in the same
+    /// order as <see cref="RegisteredFunctions"/>. Functions that don't implement
+    /// <see cref="IRuleFunctionMetadata"/> appear with a null description and
+    /// <see cref="RuleFunctionValueKind.Unspecified"/>.
+    /// </summary>
+    public IReadOnlyList<RuleFunctionDescriptor> FunctionCatalog => _functionCatalog;
 
     /// <summary>
     /// Parses, validates, and prepares a JSON rule document (a single rule or a rule set)

@@ -317,6 +317,7 @@ never drift from what the engine actually accepts.
 | [`Rulewright.Sample.Functions`](samples/Rulewright.Sample.Functions) | The three ways to register `custom`-operator functions together: `RegisterBuiltInFunctions`, an inline `RegisterFunction` delegate, and `RegisterFunctionsFrom` assembly discovery. |
 | [`Rulewright.Sample.DecisionTable`](samples/Rulewright.Sample.DecisionTable) | Loading `decisionTable` documents end to end, contrasting `hitPolicy: "first"` (one row wins) against `"collect"` (every matching row's actions apply). |
 | [`Rulewright.Sample.NetFramework48`](samples/Rulewright.Sample.NetFramework48) | A .NET Framework 4.8 smoke test proving the netstandard2.0 packages work end to end outside .NET (Core). |
+| [`Rulewright.Sample.BlazorBuilder`](samples/Rulewright.Sample.BlazorBuilder) | The v3 rule builder: a Blazor WebAssembly app that authors/edits rule-schema JSON with a visual condition-tree and action/expression editor (driven by `RuleSchemaCatalog`), plus in-browser evaluate/trace — no server, no round trip. |
 
 Run any of them with `dotnet run --project samples/<ProjectName>` (the ASP.NET Core sample also
 needs `dotnet run` — it listens on the URL printed at startup; try `curl -X POST .../evaluate -d
@@ -373,9 +374,9 @@ Called out explicitly so expectations are clear:
   stateless, single-pass evaluation. Rule outputs never feed other rules' inputs.
 - **No persistence layer.** Storing rule JSON is your application's concern; this
   library parses, validates, compiles, and executes.
-- **No UI in this phase.** The Blazor drag-and-drop builder is a separate future
-  project — the schema's `layout` key and the JSON Schema validator built here are
-  the contract it will depend on.
+- **No UI in v1.** The Blazor rule builder (`Rulewright.Sample.BlazorBuilder`, v3)
+  consumes the schema's `layout` key and the JSON Schema validator built here as its
+  contract; it does not use a canvas/`layout` yet (see its README/skill notes).
 
 ## Roadmap
 
@@ -387,9 +388,13 @@ Called out explicitly so expectations are clear:
   actions, decision-table authoring, a schema discovery catalog (`RuleSchemaCatalog` +
   `engine.RegisteredFunctions`), System.Text.Json **and** Newtonsoft.Json adapters, and a
   published NRules/RulesEngine benchmark comparison (`docs/benchmarks.md`) have all shipped.
-- **v3** — Blazor drag-and-drop rule builder emitting/consuming this exact schema.
-  From v1 on, changes to the `layout` contract or the JSON Schema are treated as
-  breaking changes.
+- **v3 (current)** — Blazor WebAssembly rule builder (`samples/Rulewright.Sample.BlazorBuilder`)
+  emitting/consuming this exact schema, running fully client-side. First milestone shipped:
+  visual condition-tree (AND/OR/NOT + leaves) and action/computed-expression editing for
+  single-rule documents, backed by `RuleSchemaCatalog` for every operator/action picker, plus
+  a live evaluate/trace panel. `rules` sets and `decisionTable` documents fall back to the raw
+  JSON view (visual editing for those, and a canvas `layout`, are follow-ups, not yet started).
+  From v1 on, changes to the `layout` contract or the JSON Schema are treated as breaking changes.
 
 ## Contributing
 

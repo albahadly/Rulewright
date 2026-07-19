@@ -35,7 +35,7 @@ jobs:
       - name: Publish Rulewright.Sample.BlazorBuilder.v2
         run: dotnet publish samples/Rulewright.Sample.BlazorBuilder.v2/Rulewright.Sample.BlazorBuilder.v2.csproj -c Release -o publish
 
-      - name: Configure GitHub Pages subpath and SPA fallback
+      - name: Configure project-site path and SPA fallback
         run: |
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           BASE_PATH="/${REPO_NAME}/"

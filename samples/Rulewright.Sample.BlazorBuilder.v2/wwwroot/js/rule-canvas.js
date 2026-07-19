@@ -1491,11 +1491,29 @@ window.rulewrightFlowBuilder = (function(){
     fitToView();
   }
 
-  function loadDocIntoCanvas(doc, sourceLabel){
+  // Decision tables have no native canvas representation — but the engine expands them into
+  // ordinary rules at load time, so we ask C# (RuleSetParser.Parse, the same expansion the engine
+  // evaluates) to hand back the equivalent { name, rules[] } and render THAT. What you see on the
+  // canvas is exactly what the engine would run.
+  async function expandDocument(doc){
+    if(!dotNetRef){ showToast("Engine bridge not ready."); return null; }
+    const respText = await dotNetRef.invokeMethodAsync('ExpandDocument', JSON.stringify(doc));
+    const resp = JSON.parse(respText);
+    if(!resp.ok){ showToast("Couldn't expand that document: " + resp.error); return null; }
+    return { name: resp.name, rules: resp.rules };
+  }
+
+  async function loadDocIntoCanvas(doc, sourceLabel){
     const label = sourceLabel ? ` from ${sourceLabel}` : '';
     if(doc && doc.decisionTable){
-      showToast("Decision tables aren't supported by this visual canvas yet — open it in a text editor instead.");
-      return false;
+      const expanded = await expandDocument(doc);
+      if(!expanded || !expanded.rules || expanded.rules.length === 0){
+        if(expanded) showToast("That decision table expanded to no rules.");
+        return false;
+      }
+      importDocument({ name: expanded.name || 'decision-table', rules: expanded.rules });
+      showToast(`Expanded a decision table into ${expanded.rules.length} rule${expanded.rules.length===1?'':'s'}${label}.`);
+      return true;
     }
     importDocument(doc);
     if(Array.isArray(doc.rules)){
@@ -1536,7 +1554,7 @@ window.rulewrightFlowBuilder = (function(){
       try{
         const res = await fetch('examples/' + file);
         const doc = await res.json();
-        loadDocIntoCanvas(doc, `"${file}"`);
+        await loadDocIntoCanvas(doc, `"${file}"`);
       }catch(err){
         showToast("Couldn't load that example.");
       }
@@ -1552,13 +1570,13 @@ window.rulewrightFlowBuilder = (function(){
     document.getElementById('btnImport').addEventListener('click', open);
     document.getElementById('importModalClose').addEventListener('click', close);
     document.getElementById('importCancel').addEventListener('click', close);
-    document.getElementById('importLoad').addEventListener('click', ()=>{
+    document.getElementById('importLoad').addEventListener('click', async ()=>{
       const text = document.getElementById('importInput').value.trim();
       if(!text){ showToast("Paste some rule JSON first."); return; }
       let doc;
       try{ doc = JSON.parse(text); }
       catch(err){ showToast("That isn't valid JSON."); return; }
-      if(loadDocIntoCanvas(doc)) close();
+      if(await loadDocIntoCanvas(doc)) close();
     });
   }
 

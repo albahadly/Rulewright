@@ -204,7 +204,7 @@
       <button class="modal-close" id="importModalClose">×</button>
     </div>
     <div class="modal-body">
-      <p>Paste a Rulewright rule document below. A rule set loads its first rule; decision tables aren't supported by this visual canvas.</p>
+      <p>Paste any Rulewright document — a single rule, a rule set, or a decision table. A rule set rebuilds all its rules; a decision table is expanded into its equivalent rules on the canvas.</p>
       <textarea id="importInput" placeholder='{ "id": "my-rule", "condition": { ... }, "actions": [ ... ] }'></textarea>
     </div>
     <div class="modal-foot">
@@ -305,6 +305,98 @@
             });
         }
     }
+
+    /// <summary>
+    /// Normalizes ANY rule document — a single rule, a rule set, or a <c>decisionTable</c> — into a
+    /// plain <c>{ name, rules[] }</c> set the canvas can rebuild. Decision tables are expanded by the
+    /// REAL engine (<see cref="RuleSetParser.Parse"/> runs the same table→rules expansion the engine
+    /// evaluates), so the canvas shows exactly what would run rather than a JS re-implementation.
+    /// </summary>
+    [JSInvokable]
+    public string ExpandDocument(string json)
+    {
+        try
+        {
+            RuleJsonValue document = EngineService.JsonReader.Read(json);
+            RuleSet ruleSet = RuleSetParser.Parse(document);
+            var rules = ruleSet.Rules.Select(RuleToJson).ToArray();
+            return JsonSerializer.Serialize(new { ok = true, error = (string?)null, name = ruleSet.Name, rules });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = ex.Message, name = (string?)null, rules = Array.Empty<object>() });
+        }
+    }
+
+    // --- domain → rule-schema JSON (the inverse of RuleSetParser, only what the canvas importer reads) ---
+
+    private static Dictionary<string, object?> RuleToJson(Rule r)
+    {
+        var o = new Dictionary<string, object?> { ["id"] = r.Id };
+        if (!string.IsNullOrEmpty(r.Description)) o["description"] = r.Description;
+        o["priority"] = r.Priority;
+        o["enabled"] = r.Enabled;
+        o["condition"] = ConditionToJson(r.Condition);
+        o["actions"] = r.Actions.Select(ActionToJson).ToArray();
+        if (r.ElseActions.Count > 0) o["else"] = r.ElseActions.Select(ActionToJson).ToArray();
+        return o;
+    }
+
+    private static object ConditionToJson(ConditionNode node)
+    {
+        if (node is ConditionGroup g)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["type"] = "group",
+                ["operator"] = g.Operator switch { LogicalOperator.And => "AND", LogicalOperator.Or => "OR", LogicalOperator.Not => "NOT", _ => "AND" },
+                ["rules"] = g.Children.Select(ConditionToJson).ToArray(),
+            };
+        }
+
+        var leaf = (ConditionLeaf)node;
+        var lo = new Dictionary<string, object?>();
+        if (leaf.Operator == ConditionOperator.Custom)
+        {
+            lo["operator"] = "custom";
+            lo["name"] = leaf.FunctionName;
+            if (leaf.Field is not null) lo["field"] = leaf.Field;
+            if (leaf.Value is not null) lo["value"] = leaf.Value;
+            return lo;
+        }
+
+        if (leaf.Left is not null) lo["expression"] = ExpressionToJson(leaf.Left);
+        else lo["field"] = leaf.Field;
+        lo["operator"] = ConditionOperatorToJson(leaf.Operator);
+        if (leaf.Operator is not (ConditionOperator.IsNull or ConditionOperator.IsNotNull)) lo["value"] = leaf.Value;
+        return lo;
+    }
+
+    private static Dictionary<string, object?> ActionToJson(RuleAction a)
+    {
+        var o = new Dictionary<string, object?> { ["type"] = a.Type, ["target"] = a.Target };
+        if (a.Type != RuleAction.RemoveOutputType) o["value"] = ExpressionToJson(a.Value);
+        return o;
+    }
+
+    private static object? ExpressionToJson(ValueExpression e) => e switch
+    {
+        LiteralExpression lit => lit.Value,
+        FieldExpression f => new Dictionary<string, object?> { ["field"] = f.Path },
+        OperatorExpression op => new Dictionary<string, object?>
+        {
+            ["op"] = op.Operator.ToString().ToLowerInvariant(),
+            ["operands"] = op.Operands.Select(ExpressionToJson).ToArray(),
+        },
+        _ => null,
+    };
+
+    private static string ConditionOperatorToJson(ConditionOperator op) => op switch
+    {
+        ConditionOperator.Equal => "Equals",
+        ConditionOperator.NotEqual => "NotEquals",
+        _ => op.ToString(),
+    };
 
     private static object? ToTraceJson(ConditionTraceNode? node)
     {

@@ -318,6 +318,7 @@ never drift from what the engine actually accepts.
 | [`Rulewright.Sample.DecisionTable`](samples/Rulewright.Sample.DecisionTable) | Loading `decisionTable` documents end to end, contrasting `hitPolicy: "first"` (one row wins) against `"collect"` (every matching row's actions apply). |
 | [`Rulewright.Sample.NetFramework48`](samples/Rulewright.Sample.NetFramework48) | A .NET Framework 4.8 smoke test proving the netstandard2.0 packages work end to end outside .NET (Core). |
 | [`Rulewright.Sample.BlazorBuilder`](samples/Rulewright.Sample.BlazorBuilder) | The v3 rule builder: a Blazor WebAssembly app that authors/edits rule-schema JSON with a visual condition-tree and action/expression editor (driven by `RuleSchemaCatalog`), plus in-browser evaluate/trace — no server, no round trip. |
+| [`Rulewright.Sample.BlazorBuilder.v2`](samples/Rulewright.Sample.BlazorBuilder.v2) | A freeform, drag-and-drop rule builder with a hand-rolled dark-themed node canvas (palette → drag nodes onto a canvas → wire them together) in the style of n8n/Logic Apps/Node-RED — covers the full authoring surface (all condition operators, computed value-expressions, all four action types, else branches, custom functions) and can load any of the `examples/` rule files onto the canvas — backed by the real engine for Validate/Test, no simulation. |
 
 Run any of them with `dotnet run --project samples/<ProjectName>` (the ASP.NET Core sample also
 needs `dotnet run` — it listens on the URL printed at startup; try `curl -X POST .../evaluate -d

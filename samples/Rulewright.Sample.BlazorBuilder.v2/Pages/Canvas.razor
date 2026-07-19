@@ -1,0 +1,281 @@
+@page "/"
+@using Rulewright.Core
+@using Rulewright.Execution
+@using Rulewright.Serialization
+@using System.Text.Json
+@using Rulewright.Sample.BlazorBuilder.v2.Services
+@implements IDisposable
+@inject EngineService EngineService
+
+<PageTitle>Rulewright — Visual Rule Builder</PageTitle>
+
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">Rw</div>
+      <div class="brand-text">
+        <span class="brand-name">RULEWRIGHT</span>
+        <span class="brand-tag">Visual rule builder</span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <select id="exampleSelect" title="Load an example rule into the canvas">
+        <option value="">Load example…</option>
+      </select>
+      <div class="divider"></div>
+      <button class="tbtn" id="btnValidate">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8.5l3.5 3.5L14 3.5" /></svg>
+        Validate rule
+      </button>
+      <button class="tbtn" id="btnTest">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l8 5-8 5V3z" /></svg>
+        Test rule
+      </button>
+      <button class="tbtn primary" id="btnExport">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 12v1.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V12" /></svg>
+        Export JSON
+      </button>
+      <div class="divider"></div>
+      <div class="zoomgroup">
+        <button id="zoomOut">−</button>
+        <span class="zoomlabel" id="zoomLabel">100%</span>
+        <button id="zoomIn">+</button>
+        <button id="zoomReset" title="Reset view">⤢</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette">
+    <div class="palette-hint">Drag a node onto the canvas, or double-click to drop it in view.</div>
+
+    <div class="palette-title">Trigger</div>
+    <div class="palette-item" draggable="true" data-type="trigger" style="--item-color:var(--accent-teal)">
+      <div class="palette-badge">▶</div>
+      <div class="palette-label">Fact Input</div>
+    </div>
+
+    <div class="palette-title">Conditions</div>
+    <div class="palette-item" draggable="true" data-type="leaf" style="--item-color:var(--accent-blue)">
+      <div class="palette-badge">=</div>
+      <div class="palette-label">Compare</div>
+    </div>
+    <div class="palette-item" draggable="true" data-type="function" style="--item-color:var(--accent-blue)">
+      <div class="palette-badge">ƒ</div>
+      <div class="palette-label">Custom Function</div>
+    </div>
+
+    <div class="palette-title">Logic</div>
+    <div class="palette-item" draggable="true" data-type="and" style="--item-color:var(--accent-copper)">
+      <div class="palette-badge">∧</div>
+      <div class="palette-label">AND Group</div>
+    </div>
+    <div class="palette-item" draggable="true" data-type="or" style="--item-color:var(--accent-copper)">
+      <div class="palette-badge">∨</div>
+      <div class="palette-label">OR Group</div>
+    </div>
+    <div class="palette-item" draggable="true" data-type="not" style="--item-color:var(--accent-copper)">
+      <div class="palette-badge">¬</div>
+      <div class="palette-label">NOT Group</div>
+    </div>
+
+    <div class="palette-title">Actions</div>
+    <div class="palette-item" draggable="true" data-type="action" style="--item-color:var(--accent-green)">
+      <div class="palette-badge">▣</div>
+      <div class="palette-label">Action</div>
+    </div>
+
+    <div class="palette-title">Computed values</div>
+    <div class="palette-item" draggable="true" data-type="valLiteral" style="--item-color:var(--accent-purple)">
+      <div class="palette-badge">"…"</div>
+      <div class="palette-label">Literal</div>
+    </div>
+    <div class="palette-item" draggable="true" data-type="valField" style="--item-color:var(--accent-purple)">
+      <div class="palette-badge">{f}</div>
+      <div class="palette-label">Field Ref</div>
+    </div>
+    <div class="palette-item" draggable="true" data-type="valOp" style="--item-color:var(--accent-purple)">
+      <div class="palette-badge">ƒx</div>
+      <div class="palette-label">Expression</div>
+    </div>
+
+    <div class="palette-hint" style="margin-top:16px;border-top:1px solid var(--border-soft);padding-top:14px;">
+      Drag from a node's right pin to another node's left pin to connect them. Click a wire to select it, then press Delete.
+      Wire a computed value into a Compare's <strong>Field (expr)</strong> pin or an Action's <strong>Value (expr)</strong> pin
+      to use a formula instead of a constant.
+    </div>
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="canvas-bg"></div>
+    <div id="world">
+      <svg class="wires" id="wiresSvg"></svg>
+    </div>
+    <div class="result-banner" id="resultBanner"></div>
+    <div class="canvas-toast" id="toast"></div>
+  </div>
+
+  <div class="inspector">
+    <div class="insp-section">
+      <div class="insp-title">Rule settings</div>
+      <div class="field">
+        <label>Rule ID</label>
+        <input type="text" id="ruleId" value="discount-rule-01">
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <input type="text" id="ruleDescription" value="VIP or high-value customers get 10% off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Priority</label>
+          <input type="number" id="rulePriority" value="10">
+        </div>
+        <div class="field" style="flex:0 0 auto;padding-top:22px;">
+          <div class="checkbox-row"><input type="checkbox" id="ruleEnabled" checked> Enabled</div>
+        </div>
+      </div>
+    </div>
+    <div class="insp-section" id="nodeInspector" style="flex:1;">
+      <div class="insp-title">Node inspector</div>
+      <div id="nodeInspectorBody">
+        <div class="insp-empty">
+          <span class="insp-empty-icon">◇</span>
+          Select a node to edit its properties.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="drawer">
+    <div class="drawer-tabs">
+      <button class="drawer-tab active" data-tab="json">JSON</button>
+      <button class="drawer-tab" data-tab="trace">Trace</button>
+      <button class="drawer-tab" data-tab="warnings">Validation</button>
+      <div class="drawer-actions">
+        <button class="tbtn" id="btnCopyJson" style="padding:5px 10px;">Copy</button>
+        <button class="drawer-close" id="drawerClose">×</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-panel active" id="panelJson"><pre id="jsonOut"></pre></div>
+      <div class="drawer-panel" id="panelTrace"><div class="insp-empty">Run <strong>Test rule</strong> to see an execution trace here.</div></div>
+      <div class="drawer-panel" id="panelWarnings"><ul class="warn-list" id="warnList"></ul></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="testModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Test rule</h3>
+      <button class="modal-close" id="testModalClose">×</button>
+    </div>
+    <div class="modal-body">
+      <p>Edit the sample fact object below, then run it through the rule graph. Nodes and wires will highlight to show what matched.</p>
+      <textarea id="factInput"></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="testCancel">Cancel</button>
+      <button class="tbtn primary" id="testRun">Run test</button>
+    </div>
+  </div>
+</div>
+
+@code {
+    private DotNetObjectReference<Canvas>? _selfRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JsInterop.InvokeVoidAsync("rulewrightFlowBuilder.init", _selfRef);
+        }
+    }
+
+    [Inject] private Microsoft.JSInterop.IJSRuntime JsInterop { get; set; } = null!;
+
+    /// <summary>Structural validation only (JSON-pointer errors) — mirrors v1's ValidationPanel.</summary>
+    [JSInvokable]
+    public string ValidateRule(string ruleJson)
+    {
+        try
+        {
+            RuleJsonValue document = EngineService.JsonReader.Read(ruleJson);
+            RuleSetValidationResult result = RuleSetValidator.Validate(document);
+            var payload = new
+            {
+                valid = result.IsValid,
+                errors = result.Errors.Select(e => new { path = e.Path, message = e.Message }).ToArray(),
+            };
+            return JsonSerializer.Serialize(payload);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                valid = false,
+                errors = new[] { new { path = "", message = ex.Message } },
+            });
+        }
+    }
+
+    /// <summary>Loads, evaluates, and traces the rule against the given fact.</summary>
+    [JSInvokable]
+    public string EvaluateRule(string ruleJson, string factJson)
+    {
+        try
+        {
+            LoadedRuleSet loaded = EngineService.Engine.LoadRuleSet(ruleJson);
+            Dictionary<string, object?> fact = Rulewright.Json.SystemText.SystemTextJsonFacts.ToDictionary(
+                JsonDocument.Parse(factJson).RootElement);
+            RuleEvaluationResult result = EngineService.Engine.Evaluate(loaded, fact, new EvaluationOptions { EnableTrace = true });
+
+            bool fired = result.FiredRules.Count > 0;
+            object? traceNode = result.Trace is { Rules.Count: > 0 } trace
+                ? ToTraceJson(trace.Rules[0].Condition)
+                : null;
+
+            var payload = new
+            {
+                ok = true,
+                error = (string?)null,
+                fired,
+                outputs = result.Outputs,
+                trace = traceNode,
+            };
+            return JsonSerializer.Serialize(payload);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                ok = false,
+                error = ex.Message,
+                fired = false,
+                outputs = (object?)null,
+                trace = (object?)null,
+            });
+        }
+    }
+
+    private static object? ToTraceJson(ConditionTraceNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        return new
+        {
+            description = node.Description,
+            passed = node.Passed,
+            children = node.Children.Select(ToTraceJson).ToArray(),
+        };
+    }
+
+    public void Dispose()
+    {
+        _selfRef?.Dispose();
+    }
+}

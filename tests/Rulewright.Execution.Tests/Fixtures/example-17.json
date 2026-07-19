@@ -1,0 +1,29 @@
+{
+  "ruleSet": {
+    "name": "Retiring a rule without deleting it",
+    "rules": [
+      {
+        "id": "legacy-flat-discount",
+        "priority": 100,
+        "enabled": false,
+        "condition": { "field": "Order.Total", "operator": "GreaterThan", "value": 0 },
+        "actions": [ { "type": "setOutput", "target": "Discount", "value": 5 } ]
+      },
+      {
+        "id": "current-discount",
+        "priority": 1,
+        "condition": { "field": "Order.Total", "operator": "GreaterThan", "value": 0 },
+        "actions": [ { "type": "setOutput", "target": "Discount", "value": 10 } ]
+      }
+    ]
+  },
+  "fact": {
+    "Order": { "Total": 150 }
+  },
+  "expected": {
+    "firedRules": [ "current-discount" ],
+    "outputs": {
+      "Discount": 10
+    }
+  }
+}

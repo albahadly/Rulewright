@@ -8,13 +8,13 @@ valid Rulewright document — a single rule, a rule set (`rules`), or a decision
 
 ```csharp
 using Rulewright.Execution;
+using Rulewright.Extensions.Functions;
 using Rulewright.Json.SystemText;
 
 var engine = new RulewrightBuilder()
     .UseJsonReader(new SystemTextJsonReader())
-    // Only 12-custom-function.json needs this:
-    .RegisterFunction("IsWeekend", (fieldValue, value) =>
-        fieldValue is DateTime d && (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday))
+    // Only 12-custom-function.json and 18-builtin-functions.json need this:
+    .RegisterBuiltInFunctions()
     .Build();
 
 string json = File.ReadAllText("examples/07-computed-values.json");
@@ -66,6 +66,9 @@ or must exist on the type (typed facts) — see `05-null-and-coalesce.json`.
 | [14-if-else-decision-table.json](14-if-else-decision-table.json) | The same if / else as 13, expressed DRY as a `first` decision table (the condition is written once). |
 | [15-condition-side-expression.json](15-condition-side-expression.json) | A condition whose left-hand side is a computed `expression` (e.g. `Order.Total / Order.ItemCount > 25`). |
 | [16-else-and-remove.json](16-else-and-remove.json) | First-class `else` actions (one rule, both branches) and `removeOutput` to retract an earlier rule's output. |
+| [17-disabled-rule.json](17-disabled-rule.json) | `enabled: false` retires a rule without deleting it — it is skipped entirely. |
+| [18-builtin-functions.json](18-builtin-functions.json) | `Rulewright.Extensions.Functions`' curated built-in `custom` predicates: `IsEmail`, `EqualsIgnoreCase`, `DivisibleBy`, `IsPositive`. |
+| [19-decision-table-computed-cell.json](19-decision-table-computed-cell.json) | A decision table `then` cell is an expression, not just a constant — a pricing table computes its output from the fact. |
 
 ## Key ideas the examples lean on
 

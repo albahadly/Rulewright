@@ -1,0 +1,31 @@
+{
+  "ruleSet": {
+    "id": "well-formed-vip-order",
+    "condition": {
+      "type": "group",
+      "operator": "AND",
+      "rules": [
+        { "field": "Customer.Email", "operator": "custom", "name": "IsEmail" },
+        { "field": "Customer.Name", "operator": "custom", "name": "EqualsIgnoreCase", "value": "ALICE" },
+        { "field": "Order.ItemCount", "operator": "custom", "name": "DivisibleBy", "value": 3 },
+        { "field": "Order.Total", "operator": "custom", "name": "IsPositive" }
+      ]
+    },
+    "actions": [
+      { "type": "setOutput", "target": "Segment", "value": "verified-regular" },
+      { "type": "appendToOutput", "target": "Notes", "value": "email verified" },
+      { "type": "appendToOutput", "target": "Notes", "value": "order size is a clean multiple of 3 with a positive total" }
+    ]
+  },
+  "fact": {
+    "Customer": { "Email": "alice@acme.com", "Name": "Alice" },
+    "Order": { "ItemCount": 3, "Total": 150 }
+  },
+  "expected": {
+    "firedRules": [ "well-formed-vip-order" ],
+    "outputs": {
+      "Segment": "verified-regular",
+      "Notes": [ "email verified", "order size is a clean multiple of 3 with a positive total" ]
+    }
+  }
+}

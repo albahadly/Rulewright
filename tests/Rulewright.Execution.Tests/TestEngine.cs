@@ -1,5 +1,5 @@
 using System;
-using System.Globalization;
+using Rulewright.Extensions.Functions;
 using Rulewright.Json.SystemText;
 
 namespace Rulewright.Execution.Tests;
@@ -11,24 +11,8 @@ internal static class TestEngine
         .RegisterFunction("AlwaysTrue", (fieldValue, value) => true)
         .RegisterFunction("FieldIsFortyTwo", (fieldValue, value) =>
             fieldValue is int i ? i == 42 : fieldValue is long l && l == 42)
-        .RegisterFunction("IsWeekend", (fieldValue, value) => TryDate(fieldValue, out DateTime date)
-            && date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        .RegisterBuiltInFunctions()
         .Build();
-
-    private static bool TryDate(object? value, out DateTime date)
-    {
-        switch (value)
-        {
-            case DateTime dt:
-                date = dt;
-                return true;
-            case string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out date):
-                return true;
-            default:
-                date = default;
-                return false;
-        }
-    }
 
     internal static string WrapRule(string conditionJson)
         => "{\"id\":\"test-rule\",\"condition\":" + conditionJson + "}";

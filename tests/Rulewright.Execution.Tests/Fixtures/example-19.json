@@ -1,0 +1,46 @@
+{
+  "ruleSet": {
+    "decisionTable": {
+      "name": "Category pricing adjustment",
+      "id": "pricing",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "field": "Order.Category",
+          "operator": "Equals"
+        }
+      ],
+      "outputs": [
+        {
+          "target": "AdjustedTotal"
+        }
+      ],
+      "rows": [
+        {
+          "when": [ "books" ],
+          "then": [ { "op": "multiply", "operands": [ { "field": "Order.Total" }, 0.9 ] } ]
+        },
+        {
+          "when": [ "electronics" ],
+          "then": [ { "op": "multiply", "operands": [ { "field": "Order.Total" }, 1.05 ] } ]
+        },
+        {
+          "when": [ null ],
+          "then": [ { "field": "Order.Total" } ]
+        }
+      ]
+    }
+  },
+  "fact": {
+    "Order": {
+      "Category": "toys",
+      "Total": 150.0
+    }
+  },
+  "expected": {
+    "firedRules": [ "pricing-2" ],
+    "outputs": {
+      "AdjustedTotal": 150.0
+    }
+  }
+}

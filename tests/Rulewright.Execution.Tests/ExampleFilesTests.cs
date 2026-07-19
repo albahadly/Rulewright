@@ -1,5 +1,5 @@
-using System;
 using Rulewright.Core;
+using Rulewright.Extensions.Functions;
 using Rulewright.Json.SystemText;
 using Rulewright.Serialization;
 using Xunit;
@@ -14,8 +14,8 @@ public class ExampleFilesTests
 {
     private static readonly RulewrightEngine Engine = new RulewrightBuilder()
         .UseJsonReader(new SystemTextJsonReader())
-        .RegisterFunction("IsWeekend", (fieldValue, value) =>
-            fieldValue is DateTime date && date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        // Covers 12-custom-function.json (IsWeekend) and 18-builtin-functions.json.
+        .RegisterBuiltInFunctions()
         .Build();
 
     private static readonly string ExamplesDirectory = FindExamplesDirectory();
